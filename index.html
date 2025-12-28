@@ -178,7 +178,7 @@
                 top: 0;
                 z-index: 100;
             }
-            .mobile-header h1 { font-size: 16px; font-weight: 600; }
+            .mobile-header h1 { font-size: 16px; font-weight: 600; text-align: center; flex: 1; }
             .mobile-menu-btn { display: flex; align-items: center; justify-content: center; }
             
             /* Header normal oculto */
@@ -195,10 +195,10 @@
             .stat-card .label { font-size: 11px; }
             
             /* Gráficos en una columna */
-            .content > div[style*="grid-template-columns: 1fr 1fr"] { 
-                display: block !important; 
+            .charts-grid { 
+                grid-template-columns: 1fr !important; 
             }
-            .content > div[style*="grid-template-columns: 1fr 1fr"] > div {
+            .charts-grid .table-container {
                 margin-bottom: 16px;
             }
             
@@ -362,7 +362,7 @@
                     </div>
                     
                     <!-- Gráficos -->
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+                    <div class="charts-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
                         <div class="table-container">
                             <div class="table-header"><h3>📈 Tendencia CxC (6 meses)</h3></div>
                             <div style="padding:20px;height:280px">
