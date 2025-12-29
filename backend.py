@@ -2184,7 +2184,7 @@ def portal_estado_cuenta_pdf():
         facturas = ws_fac.get_all_records()
         
         hoy = datetime.now()
-        facturas_cliente = [f for f in facturas if str(f.get('ClienteID', '')) == cliente_id and f.get('Pagado') != 'TRUE']
+        facturas_cliente = [f for f in facturas if str(f.get('ClienteID', '')) == cliente_id and str(f.get('Pagado', '')).upper() != 'TRUE']
         
         total_pendiente = sum(parse_number(f.get('MontoCobrar', 0)) for f in facturas_cliente)
         
@@ -2230,6 +2230,131 @@ def portal_estado_cuenta_pdf():
         
         nombre = cliente.get('Nombre', 'Cliente')[:20].replace(' ', '_')
         return send_file_no_cache(buffer, 'application/pdf', f'Estado_Cuenta_{nombre}_{hoy.strftime("%Y%m%d")}.pdf')
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# =====================
+# DASHBOARD SOLO LECTURA (para dueño del negocio)
+# =====================
+
+@app.route('/api/dashboard/generar-acceso', methods=['POST'])
+def generar_acceso_dashboard():
+    """Genera código de acceso para el dashboard de solo lectura"""
+    try:
+        data = request.json or {}
+        codigo = data.get('codigo', '')
+        
+        if not codigo or len(codigo) < 4:
+            return jsonify({'success': False, 'error': 'El código debe tener al menos 4 caracteres'}), 400
+        
+        # Generar token único
+        token = secrets.token_hex(12)
+        
+        # Guardar en configuración
+        sheet = get_sheet()
+        try:
+            ws = sheet.worksheet('Configuracion')
+        except:
+            ws = sheet.add_worksheet(title='Configuracion', rows=20, cols=2)
+            ws.append_row(['Campo', 'Valor'])
+        
+        # Buscar si ya existe
+        records = ws.get_all_records()
+        found_token = False
+        found_codigo = False
+        
+        for i, r in enumerate(records):
+            if r.get('Campo') == 'dashboardToken':
+                ws.update_cell(i + 2, 2, token)
+                found_token = True
+            if r.get('Campo') == 'dashboardCodigo':
+                ws.update_cell(i + 2, 2, codigo)
+                found_codigo = True
+        
+        if not found_token:
+            ws.append_row(['dashboardToken', token])
+        if not found_codigo:
+            ws.append_row(['dashboardCodigo', codigo])
+        
+        return jsonify({
+            'success': True,
+            'token': token,
+            'link': f'/dashboard_readonly.html?t={token}'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/dashboard/verificar', methods=['POST'])
+def verificar_acceso_dashboard():
+    """Verifica código de acceso al dashboard"""
+    try:
+        data = request.json
+        token = data.get('token')
+        codigo = data.get('codigo')
+        
+        if not token or not codigo:
+            return jsonify({'success': False, 'error': 'Datos incompletos'}), 400
+        
+        sheet = get_sheet()
+        
+        # Verificar token y código
+        try:
+            ws_config = sheet.worksheet('Configuracion')
+            config = ws_config.get_all_records()
+        except:
+            return jsonify({'success': False, 'error': 'No hay acceso configurado'})
+        
+        token_guardado = None
+        codigo_guardado = None
+        empresa = ''
+        
+        for r in config:
+            campo = r.get('Campo', '')
+            if campo == 'dashboardToken':
+                token_guardado = r.get('Valor', '')
+            elif campo == 'dashboardCodigo':
+                codigo_guardado = r.get('Valor', '')
+            elif campo == 'nombre':
+                empresa = r.get('Valor', '')
+        
+        if token != token_guardado:
+            return jsonify({'success': False, 'error': 'Link inválido'})
+        
+        if codigo != codigo_guardado:
+            return jsonify({'success': False, 'error': 'Código incorrecto'})
+        
+        # Obtener todos los datos
+        ws_cli = sheet.worksheet('Clientes')
+        ws_fac = sheet.worksheet('Facturas')
+        
+        clientes_raw = ws_cli.get_all_records()
+        facturas_raw = ws_fac.get_all_records()
+        
+        clientes = [{
+            'id': str(c.get('ID', '')),
+            'nombre': c.get('Nombre', ''),
+            'identificacion': c.get('Identificacion', '')
+        } for c in clientes_raw]
+        
+        facturas = [{
+            'id': str(f.get('ID', '')),
+            'consecutivo': f.get('Consecutivo', ''),
+            'clienteId': str(f.get('ClienteID', '')),
+            'fecha': f.get('Fecha', ''),
+            'fechaVencimiento': f.get('FechaVencimiento', ''),
+            'totalFactura': parse_number(f.get('TotalFactura', 0)),
+            'montoCobrar': parse_number(f.get('MontoCobrar', 0)),
+            'pagado': f.get('Pagado', ''),
+            'fechaPago': f.get('FechaPago', '')
+        } for f in facturas_raw]
+        
+        return jsonify({
+            'success': True,
+            'tokenAcceso': secrets.token_hex(8),
+            'empresa': empresa,
+            'clientes': clientes,
+            'facturas': facturas
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

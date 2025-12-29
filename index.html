@@ -595,6 +595,32 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- Acceso Dashboard Solo Lectura -->
+                    <div class="table-container" style="max-width:700px;margin-top:24px">
+                        <div class="table-header"><h3>👁️ Acceso Dashboard (Solo Lectura)</h3></div>
+                        <div style="padding:24px">
+                            <p style="color:var(--text-secondary);margin-bottom:20px">Generá un link para que tu cliente (el dueño del negocio) pueda ver sus CxC sin poder editar nada.</p>
+                            <div class="form-group">
+                                <label>Código de Acceso (mínimo 4 caracteres)</label>
+                                <input type="text" class="form-control" id="dashboard-codigo" placeholder="Ej: gerald2024" style="max-width:300px">
+                                <small style="color:var(--text-secondary)">Este código lo usará tu cliente para ingresar al dashboard.</small>
+                            </div>
+                            <button class="btn btn-primary" onclick="generarAccesoDashboard()">
+                                <i data-lucide="link" style="width:16px;height:16px"></i>Generar Link de Acceso
+                            </button>
+                            <div id="dashboard-link-resultado" style="margin-top:16px;display:none">
+                                <div style="background:var(--bg-tertiary);padding:16px;border-radius:8px">
+                                    <p style="margin-bottom:8px;color:var(--accent-green)">✓ Link generado:</p>
+                                    <code id="dashboard-link-url" style="word-break:break-all;font-size:12px"></code>
+                                    <div style="display:flex;gap:8px;margin-top:12px">
+                                        <button class="btn btn-sm btn-secondary" onclick="copiarLinkDashboard()"><i data-lucide="copy" style="width:14px;height:14px"></i>Copiar</button>
+                                        <button class="btn btn-sm btn-success" onclick="enviarLinkDashboardWhatsApp()"><i data-lucide="message-circle" style="width:14px;height:14px"></i>WhatsApp</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </main>
@@ -1931,6 +1957,42 @@
                 toast('Error al guardar', 'error');
             }
             hideLoading();
+        }
+
+        // ===================== DASHBOARD READONLY =====================
+        let dashboardLinkActual = '';
+        
+        async function generarAccesoDashboard() {
+            const codigo = document.getElementById('dashboard-codigo').value.trim();
+            if (!codigo || codigo.length < 4) {
+                toast('El código debe tener al menos 4 caracteres', 'error');
+                return;
+            }
+            
+            showLoading();
+            const res = await api('/dashboard/generar-acceso', 'POST', { codigo });
+            hideLoading();
+            
+            if (res.success) {
+                const baseUrl = window.location.origin;
+                dashboardLinkActual = `${baseUrl}/Sistema_CxC/dashboard_readonly.html?t=${res.token}`;
+                
+                document.getElementById('dashboard-link-url').textContent = dashboardLinkActual;
+                document.getElementById('dashboard-link-resultado').style.display = 'block';
+                toast('Link generado correctamente');
+            } else {
+                toast(res.error || 'Error al generar link', 'error');
+            }
+        }
+        
+        function copiarLinkDashboard() {
+            navigator.clipboard.writeText(dashboardLinkActual);
+            toast('Link copiado al portapapeles');
+        }
+        
+        function enviarLinkDashboardWhatsApp() {
+            const mensaje = `Hola! Acá podés consultar el estado de tus cuentas por cobrar: ${dashboardLinkActual}`;
+            window.open(`https://wa.me/?text=${encodeURIComponent(mensaje)}`, '_blank');
         }
 
         // ===================== NEGOCIOS =====================

@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard CxC - Vista General</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.321.0/dist/umd/lucide.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-orange: #f59e0b;
+            --accent-red: #ef4444;
+            --accent-purple: #8b5cf6;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border: #334155;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: var(--bg-primary); 
+            color: var(--text-primary); 
+            min-height: 100vh;
+        }
+        
+        /* Header */
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .header-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header-logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .header h1 { font-size: 18px; font-weight: 600; }
+        .header span { font-size: 12px; color: var(--text-secondary); }
+        .badge-readonly {
+            background: rgba(139, 92, 246, 0.2);
+            color: var(--accent-purple);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        /* Main */
+        .main-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        
+        /* Login */
+        .login-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: calc(100vh - 80px);
+            padding: 24px;
+        }
+        .login-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            width: 100%;
+            max-width: 420px;
+            text-align: center;
+        }
+        .login-card h2 { font-size: 24px; margin-bottom: 8px; }
+        .login-card p { color: var(--text-secondary); font-size: 14px; margin-bottom: 32px; }
+        .login-card.hidden { display: none; }
+        
+        .form-group { text-align: left; margin-bottom: 20px; }
+        .form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 8px; color: var(--text-secondary); }
+        .form-control {
+            width: 100%;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px 16px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+        .form-control:focus { outline: none; border-color: var(--accent-blue); }
+        
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: var(--accent-blue); color: white; width: 100%; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); }
+        .btn-sm { padding: 8px 16px; font-size: 13px; }
+        
+        .error-msg {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid var(--accent-red);
+            color: var(--accent-red);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .error-msg.show { display: block; }
+        
+        /* Dashboard */
+        .dashboard { display: none; }
+        .dashboard.active { display: block; }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .stat-card .label { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+        .stat-card .value { font-size: 28px; font-weight: 700; }
+        .stat-card.success .value { color: var(--accent-green); }
+        .stat-card.warning .value { color: var(--accent-orange); }
+        .stat-card.danger .value { color: var(--accent-red); }
+        
+        .section-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 24px;
+        }
+        .section-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .section-header h3 { font-size: 15px; font-weight: 600; }
+        
+        .filters { display: flex; gap: 12px; flex-wrap: wrap; }
+        .filter-select {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: var(--text-primary);
+            font-size: 13px;
+            min-width: 150px;
+        }
+        
+        .table-wrapper { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; min-width: 700px; }
+        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+        th { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-secondary); background: var(--bg-tertiary); }
+        td { font-size: 13px; }
+        tr:hover { background: rgba(255,255,255,0.02); }
+        
+        .badge {
+            display: inline-flex;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .badge-success { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+        .badge-warning { background: rgba(245, 158, 11, 0.15); color: var(--accent-orange); }
+        .badge-danger { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+        .badge-info { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+        
+        .cliente-row { cursor: pointer; }
+        .cliente-row:hover { background: rgba(59, 130, 246, 0.1); }
+        
+        .empty-state { text-align: center; padding: 40px; color: var(--text-secondary); }
+        
+        /* Loading */
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .loading.show { display: flex; }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid var(--border);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header { padding: 12px 16px; flex-direction: column; gap: 12px; }
+            .header-left { width: 100%; justify-content: space-between; }
+            .main-container { padding: 16px; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .stat-card .value { font-size: 22px; }
+            .section-header { flex-direction: column; align-items: flex-start; }
+            .filters { width: 100%; }
+            .filter-select { flex: 1; }
+        }
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading"><div class="spinner"></div></div>
+    
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="header-logo">
+                <div class="header-logo-icon">
+                    <i data-lucide="bar-chart-3" style="width:24px;height:24px;color:white"></i>
+                </div>
+                <div>
+                    <h1 id="empresa-nombre">Dashboard CxC</h1>
+                    <span>Vista General</span>
+                </div>
+            </div>
+            <span class="badge-readonly">👁️ Solo lectura</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="btn-logout" style="display:none" onclick="logout()">
+            <i data-lucide="log-out" style="width:16px;height:16px"></i> Salir
+        </button>
+    </header>
+    
+    <!-- Login -->
+    <div class="login-container" id="login-container">
+        <div class="login-card" id="login-card">
+            <h2>🔒 Acceso Dashboard</h2>
+            <p>Ingresá tu código de acceso para ver el estado de tus cuentas por cobrar</p>
+            
+            <div class="error-msg" id="error-msg">Código incorrecto</div>
+            
+            <div class="form-group">
+                <label>Código de acceso</label>
+                <input type="password" class="form-control" id="codigo-acceso" placeholder="••••••••"
+                       onkeyup="if(event.key === 'Enter') verificarAcceso()">
+            </div>
+            
+            <button class="btn btn-primary" onclick="verificarAcceso()">
+                <i data-lucide="unlock" style="width:18px;height:18px"></i>
+                Ingresar
+            </button>
+        </div>
+    </div>
+    
+    <!-- Dashboard -->
+    <div class="main-container dashboard" id="dashboard">
+        <!-- Stats -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="label">Total por Cobrar</div>
+                <div class="value" id="stat-total">₡0</div>
+            </div>
+            <div class="stat-card warning">
+                <div class="label">Facturas Pendientes</div>
+                <div class="value" id="stat-pendientes">0</div>
+            </div>
+            <div class="stat-card danger">
+                <div class="label">Monto Vencido</div>
+                <div class="value" id="stat-vencido">₡0</div>
+            </div>
+            <div class="stat-card success">
+                <div class="label">Cobrado este Mes</div>
+                <div class="value" id="stat-cobrado">₡0</div>
+            </div>
+        </div>
+        
+        <!-- Resumen por Cliente -->
+        <div class="section-card">
+            <div class="section-header">
+                <h3>👥 Resumen por Cliente</h3>
+                <div class="filters">
+                    <select class="filter-select" id="filtro-estado" onchange="renderResumen()">
+                        <option value="">Todos los estados</option>
+                        <option value="vencido">Con facturas vencidas</option>
+                        <option value="al-dia">Al día</option>
+                    </select>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Cliente</th>
+                            <th>Facturas Pend.</th>
+                            <th>Total Pendiente</th>
+                            <th>Monto Vencido</th>
+                            <th>Días Prom. Atraso</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabla-resumen"></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Detalle de Facturas -->
+        <div class="section-card">
+            <div class="section-header">
+                <h3>📋 Detalle de Facturas Pendientes</h3>
+                <div class="filters">
+                    <select class="filter-select" id="filtro-cliente" onchange="renderFacturas()">
+                        <option value="">Todos los clientes</option>
+                    </select>
+                    <select class="filter-select" id="filtro-vencimiento" onchange="renderFacturas()">
+                        <option value="">Todos</option>
+                        <option value="vencidas">Vencidas</option>
+                        <option value="por-vencer">Por vencer (7 días)</option>
+                        <option value="al-dia">Al día</option>
+                    </select>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Consecutivo</th>
+                            <th>Cliente</th>
+                            <th>Fecha</th>
+                            <th>Vencimiento</th>
+                            <th>Total</th>
+                            <th>A Cobrar</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabla-facturas"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = 'https://web-production-66499.up.railway.app/api';
+        let state = { clientes: [], facturas: [], token: null };
+        
+        // Obtener token de URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const tokenUrl = urlParams.get('t');
+        
+        function showLoading() { document.getElementById('loading').classList.add('show'); }
+        function hideLoading() { document.getElementById('loading').classList.remove('show'); }
+        
+        function formatMoney(num) {
+            return '₡' + Number(num || 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+        
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            return dateStr.split('T')[0];
+        }
+        
+        async function verificarAcceso() {
+            const codigo = document.getElementById('codigo-acceso').value;
+            if (!codigo) {
+                document.getElementById('error-msg').classList.add('show');
+                return;
+            }
+            
+            showLoading();
+            try {
+                const res = await fetch(`${API}/dashboard/verificar`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: tokenUrl, codigo })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    state.token = data.tokenAcceso;
+                    state.clientes = data.clientes || [];
+                    state.facturas = data.facturas || [];
+                    
+                    document.getElementById('empresa-nombre').textContent = data.empresa || 'Dashboard CxC';
+                    document.getElementById('error-msg').classList.remove('show');
+                    
+                    mostrarDashboard();
+                } else {
+                    document.getElementById('error-msg').textContent = data.error || 'Código incorrecto';
+                    document.getElementById('error-msg').classList.add('show');
+                }
+            } catch (e) {
+                document.getElementById('error-msg').textContent = 'Error de conexión';
+                document.getElementById('error-msg').classList.add('show');
+            }
+            hideLoading();
+        }
+        
+        function mostrarDashboard() {
+            document.getElementById('login-container').style.display = 'none';
+            document.getElementById('dashboard').classList.add('active');
+            document.getElementById('btn-logout').style.display = 'flex';
+            
+            // Llenar filtro de clientes
+            const select = document.getElementById('filtro-cliente');
+            select.innerHTML = '<option value="">Todos los clientes</option>' + 
+                state.clientes.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
+            
+            calcularEstadisticas();
+            renderResumen();
+            renderFacturas();
+        }
+        
+        function calcularEstadisticas() {
+            const hoy = new Date();
+            const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+            
+            let totalPendiente = 0;
+            let totalVencido = 0;
+            let facturasPendientes = 0;
+            let cobradoMes = 0;
+            
+            state.facturas.forEach(f => {
+                const pagado = String(f.pagado || '').toUpperCase() === 'TRUE';
+                const monto = parseFloat(f.montoCobrar) || 0;
+                
+                if (pagado) {
+                    // Cobrado este mes
+                    try {
+                        const fechaPago = new Date(f.fechaPago);
+                        if (fechaPago >= inicioMes) {
+                            cobradoMes += monto;
+                        }
+                    } catch(e) {}
+                } else {
+                    totalPendiente += monto;
+                    facturasPendientes++;
+                    
+                    try {
+                        const venc = new Date(f.fechaVencimiento?.split('T')[0]);
+                        if (venc < hoy) {
+                            totalVencido += monto;
+                        }
+                    } catch(e) {}
+                }
+            });
+            
+            document.getElementById('stat-total').textContent = formatMoney(totalPendiente);
+            document.getElementById('stat-pendientes').textContent = facturasPendientes;
+            document.getElementById('stat-vencido').textContent = formatMoney(totalVencido);
+            document.getElementById('stat-cobrado').textContent = formatMoney(cobradoMes);
+        }
+        
+        function renderResumen() {
+            const filtroEstado = document.getElementById('filtro-estado').value;
+            const hoy = new Date();
+            
+            // Calcular resumen por cliente
+            const resumen = {};
+            state.clientes.forEach(c => {
+                resumen[c.id] = {
+                    id: c.id,
+                    nombre: c.nombre,
+                    facturas: 0,
+                    pendiente: 0,
+                    vencido: 0,
+                    diasAtraso: []
+                };
+            });
+            
+            state.facturas.forEach(f => {
+                const pagado = String(f.pagado || '').toUpperCase() === 'TRUE';
+                if (pagado) return;
+                
+                const clienteId = f.clienteId;
+                if (!resumen[clienteId]) return;
+                
+                const monto = parseFloat(f.montoCobrar) || 0;
+                resumen[clienteId].facturas++;
+                resumen[clienteId].pendiente += monto;
+                
+                try {
+                    const venc = new Date(f.fechaVencimiento?.split('T')[0]);
+                    const dias = Math.ceil((hoy - venc) / 86400000);
+                    if (dias > 0) {
+                        resumen[clienteId].vencido += monto;
+                        resumen[clienteId].diasAtraso.push(dias);
+                    }
+                } catch(e) {}
+            });
+            
+            let clientes = Object.values(resumen).filter(r => r.facturas > 0);
+            
+            // Filtrar
+            if (filtroEstado === 'vencido') {
+                clientes = clientes.filter(c => c.vencido > 0);
+            } else if (filtroEstado === 'al-dia') {
+                clientes = clientes.filter(c => c.vencido === 0);
+            }
+            
+            // Ordenar por monto pendiente
+            clientes.sort((a, b) => b.pendiente - a.pendiente);
+            
+            const tbody = document.getElementById('tabla-resumen');
+            if (clientes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No hay datos</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = clientes.map(c => {
+                const promDias = c.diasAtraso.length > 0 
+                    ? Math.round(c.diasAtraso.reduce((a,b) => a+b, 0) / c.diasAtraso.length) 
+                    : 0;
+                
+                let badge = '<span class="badge badge-success">Al día</span>';
+                if (c.vencido > 0) badge = '<span class="badge badge-danger">Vencido</span>';
+                
+                return `<tr class="cliente-row" onclick="filtrarPorCliente('${c.id}')">
+                    <td><strong>${c.nombre}</strong></td>
+                    <td>${c.facturas}</td>
+                    <td>${formatMoney(c.pendiente)}</td>
+                    <td style="color: ${c.vencido > 0 ? 'var(--accent-red)' : 'inherit'}">${formatMoney(c.vencido)}</td>
+                    <td>${promDias > 0 ? promDias + ' días' : '-'}</td>
+                    <td>${badge}</td>
+                </tr>`;
+            }).join('');
+        }
+        
+        function filtrarPorCliente(clienteId) {
+            document.getElementById('filtro-cliente').value = clienteId;
+            renderFacturas();
+            // Scroll a la tabla
+            document.getElementById('tabla-facturas').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function renderFacturas() {
+            const filtroCliente = document.getElementById('filtro-cliente').value;
+            const filtroVenc = document.getElementById('filtro-vencimiento').value;
+            const hoy = new Date();
+            
+            let facturas = state.facturas.filter(f => String(f.pagado || '').toUpperCase() !== 'TRUE');
+            
+            if (filtroCliente) {
+                facturas = facturas.filter(f => f.clienteId === filtroCliente);
+            }
+            
+            // Calcular estado y filtrar
+            facturas = facturas.map(f => {
+                let estado = 'al-dia';
+                let diasVenc = 0;
+                try {
+                    const venc = new Date(f.fechaVencimiento?.split('T')[0]);
+                    diasVenc = Math.ceil((venc - hoy) / 86400000);
+                    if (diasVenc < 0) estado = 'vencida';
+                    else if (diasVenc <= 7) estado = 'por-vencer';
+                } catch(e) {}
+                return { ...f, estado, diasVenc };
+            });
+            
+            if (filtroVenc === 'vencidas') {
+                facturas = facturas.filter(f => f.estado === 'vencida');
+            } else if (filtroVenc === 'por-vencer') {
+                facturas = facturas.filter(f => f.estado === 'por-vencer');
+            } else if (filtroVenc === 'al-dia') {
+                facturas = facturas.filter(f => f.estado === 'al-dia');
+            }
+            
+            // Ordenar por vencimiento
+            facturas.sort((a, b) => a.diasVenc - b.diasVenc);
+            
+            const tbody = document.getElementById('tabla-facturas');
+            if (facturas.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No hay facturas</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = facturas.map(f => {
+                const cliente = state.clientes.find(c => c.id === f.clienteId);
+                let badge = '<span class="badge badge-success">Al día</span>';
+                if (f.estado === 'vencida') badge = `<span class="badge badge-danger">Vencida (${Math.abs(f.diasVenc)}d)</span>`;
+                else if (f.estado === 'por-vencer') badge = `<span class="badge badge-warning">Vence en ${f.diasVenc}d</span>`;
+                
+                return `<tr>
+                    <td><strong>${f.consecutivo}</strong></td>
+                    <td>${cliente?.nombre || '-'}</td>
+                    <td>${formatDate(f.fecha)}</td>
+                    <td>${formatDate(f.fechaVencimiento)}</td>
+                    <td>${formatMoney(f.totalFactura)}</td>
+                    <td>${formatMoney(f.montoCobrar)}</td>
+                    <td>${badge}</td>
+                </tr>`;
+            }).join('');
+        }
+        
+        function logout() {
+            state = { clientes: [], facturas: [], token: null };
+            document.getElementById('login-container').style.display = 'flex';
+            document.getElementById('dashboard').classList.remove('active');
+            document.getElementById('btn-logout').style.display = 'none';
+            document.getElementById('codigo-acceso').value = '';
+        }
+        
+        // Init
+        document.addEventListener('DOMContentLoaded', async () => {
+            lucide.createIcons();
+            
+            if (!tokenUrl) {
+                document.getElementById('login-card').innerHTML = `
+                    <h2>❌ Link inválido</h2>
+                    <p style="color: var(--accent-red)">Este link no es válido. Contactá a tu contador para obtener acceso.</p>
+                `;
+            }
+        });
+    </script>
+</body>
+</html>
