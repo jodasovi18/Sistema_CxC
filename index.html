@@ -935,7 +935,12 @@
         function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
         function fmt(n) { return (n || 0).toLocaleString('es-CR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-        function fmtDate(d) { if (!d) return '-'; const dt = new Date(d); return isNaN(dt) ? '-' : dt.toLocaleDateString('es-CR'); }
+        function fmtDate(d) { 
+            if (!d) return '-'; 
+            const parts = d.split('T')[0].split('-');
+            if (parts.length !== 3) return d;
+            return `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
         function getMonto(f) { return (f.totalFactura || 0) - (f.corfoga || 0) - (f.otrosRebajos || 0); }
 
         function calcMonto() {

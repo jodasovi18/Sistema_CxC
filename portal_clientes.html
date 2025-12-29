@@ -460,8 +460,9 @@
         
         function formatDate(dateStr) {
             if (!dateStr) return '-';
-            const d = new Date(dateStr.split('T')[0]);
-            return d.toLocaleDateString('es-CR');
+            const parts = dateStr.split('T')[0].split('-');
+            if (parts.length !== 3) return dateStr;
+            return `${parts[2]}-${parts[1]}-${parts[0]}`;
         }
         
         async function verificar() {
