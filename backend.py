@@ -1958,6 +1958,282 @@ def save_config():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # =====================
+# PORTAL DE CLIENTES
+# =====================
+import hashlib
+import secrets
+
+def generar_token_cliente(cliente_id, negocio_id):
+    """Genera un token único para el cliente"""
+    data = f"{cliente_id}-{negocio_id}-portal"
+    return hashlib.sha256(data.encode()).hexdigest()[:16]
+
+def verificar_ultimos_digitos(identificacion, codigo):
+    """Verifica los últimos 4 dígitos de la cédula"""
+    # Limpiar identificación (quitar guiones, espacios)
+    id_limpia = ''.join(filter(str.isdigit, str(identificacion)))
+    return id_limpia[-4:] == codigo
+
+@app.route('/api/portal/generar-link/<cliente_id>', methods=['POST'])
+def generar_link_portal(cliente_id):
+    """Genera un link de consulta para un cliente"""
+    try:
+        data = request.json or {}
+        negocio_id = data.get('negocioId', 'default')
+        
+        token = generar_token_cliente(cliente_id, negocio_id)
+        
+        # Guardar el token en la hoja de clientes (opcional, para referencia)
+        sheet = get_sheet()
+        ws = sheet.worksheet('Clientes')
+        records = ws.get_all_records()
+        
+        for i, r in enumerate(records):
+            if str(r.get('ID', '')) == cliente_id:
+                # Verificar si existe columna TokenPortal
+                headers = ws.row_values(1)
+                if 'TokenPortal' not in headers:
+                    ws.update_cell(1, len(headers) + 1, 'TokenPortal')
+                    headers.append('TokenPortal')
+                
+                col_token = headers.index('TokenPortal') + 1
+                ws.update_cell(i + 2, col_token, token)
+                break
+        
+        return jsonify({
+            'success': True,
+            'token': token,
+            'link': f'/portal_clientes.html?t={token}'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/portal/info', methods=['GET'])
+def portal_info():
+    """Obtiene info básica del portal (nombre empresa)"""
+    try:
+        token = request.args.get('token')
+        if not token:
+            return jsonify({'success': False, 'error': 'Token requerido'}), 400
+        
+        sheet = get_sheet()
+        
+        # Buscar cliente con ese token
+        ws_cli = sheet.worksheet('Clientes')
+        clientes = ws_cli.get_all_records()
+        
+        cliente_encontrado = None
+        for c in clientes:
+            if c.get('TokenPortal') == token:
+                cliente_encontrado = c
+                break
+        
+        if not cliente_encontrado:
+            return jsonify({'success': False, 'error': 'Link inválido o expirado'})
+        
+        # Obtener nombre de empresa
+        empresa = ''
+        try:
+            ws_config = sheet.worksheet('Configuracion')
+            config = ws_config.get_all_records()
+            for r in config:
+                if r.get('Campo') == 'nombre':
+                    empresa = r.get('Valor', '')
+                    break
+        except:
+            pass
+        
+        return jsonify({
+            'success': True,
+            'empresa': empresa,
+            'clienteNombre': cliente_encontrado.get('Nombre', '')
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/portal/verificar', methods=['POST'])
+def portal_verificar():
+    """Verifica código y retorna datos del cliente"""
+    try:
+        data = request.json
+        token = data.get('token')
+        codigo = data.get('codigo')
+        
+        if not token or not codigo:
+            return jsonify({'success': False, 'error': 'Datos incompletos'}), 400
+        
+        sheet = get_sheet()
+        
+        # Buscar cliente con ese token
+        ws_cli = sheet.worksheet('Clientes')
+        clientes = ws_cli.get_all_records()
+        
+        cliente = None
+        for c in clientes:
+            if c.get('TokenPortal') == token:
+                cliente = c
+                break
+        
+        if not cliente:
+            return jsonify({'success': False, 'error': 'Link inválido'})
+        
+        # Verificar código (últimos 4 dígitos)
+        if not verificar_ultimos_digitos(cliente.get('Identificacion', ''), codigo):
+            return jsonify({'success': False, 'error': 'Código incorrecto'})
+        
+        # Obtener facturas del cliente
+        ws_fac = sheet.worksheet('Facturas')
+        facturas = ws_fac.get_all_records()
+        
+        cliente_id = str(cliente.get('ID', ''))
+        facturas_cliente = [f for f in facturas if str(f.get('ClienteID', '')) == cliente_id]
+        
+        # Separar pendientes y pagadas
+        hoy = datetime.now()
+        pendientes = []
+        pagos = []
+        total_pendiente = 0
+        total_vencido = 0
+        
+        for f in facturas_cliente:
+            if f.get('Pagado') == 'TRUE' or str(f.get('Pagado')).upper() == 'TRUE':
+                # Factura pagada
+                pagos.append({
+                    'consecutivo': f.get('Consecutivo', ''),
+                    'fechaPago': f.get('FechaPago', ''),
+                    'monto': parse_number(f.get('MontoCobrar', 0)),
+                    'detalle': f.get('DetallePago', '')
+                })
+            else:
+                # Factura pendiente
+                monto = parse_number(f.get('MontoCobrar', 0))
+                total_pendiente += monto
+                
+                try:
+                    fv = datetime.fromisoformat(f.get('FechaVencimiento', '').split('T')[0])
+                    if fv < hoy:
+                        total_vencido += monto
+                except:
+                    pass
+                
+                pendientes.append({
+                    'consecutivo': f.get('Consecutivo', ''),
+                    'fecha': f.get('Fecha', ''),
+                    'fechaVencimiento': f.get('FechaVencimiento', ''),
+                    'montoCobrar': monto
+                })
+        
+        # Ordenar pendientes por fecha de vencimiento
+        pendientes.sort(key=lambda x: x.get('fechaVencimiento', ''))
+        
+        # Ordenar pagos por fecha (más recientes primero)
+        pagos.sort(key=lambda x: x.get('fechaPago', ''), reverse=True)
+        pagos = pagos[:10]  # Solo últimos 10 pagos
+        
+        # Generar token de acceso temporal
+        token_acceso = secrets.token_hex(8)
+        
+        return jsonify({
+            'success': True,
+            'tokenAcceso': token_acceso,
+            'cliente': {
+                'id': cliente_id,
+                'nombre': cliente.get('Nombre', ''),
+                'identificacion': cliente.get('Identificacion', ''),
+                'diasCredito': cliente.get('DiasCredito', 8)
+            },
+            'facturas': pendientes,
+            'pagos': pagos,
+            'resumen': {
+                'totalPendiente': total_pendiente,
+                'totalVencido': total_vencido,
+                'facturasPendientes': len(pendientes)
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/portal/estado-cuenta-pdf', methods=['GET'])
+def portal_estado_cuenta_pdf():
+    """Genera PDF de estado de cuenta para el portal"""
+    try:
+        token = request.args.get('token')
+        
+        if not token:
+            return jsonify({'success': False, 'error': 'Token requerido'}), 400
+        
+        sheet = get_sheet()
+        
+        # Buscar cliente
+        ws_cli = sheet.worksheet('Clientes')
+        clientes = ws_cli.get_all_records()
+        
+        cliente = None
+        for c in clientes:
+            if c.get('TokenPortal') == token:
+                cliente = c
+                break
+        
+        if not cliente:
+            return jsonify({'success': False, 'error': 'Token inválido'}), 404
+        
+        cliente_id = str(cliente.get('ID', ''))
+        
+        # Obtener facturas
+        ws_fac = sheet.worksheet('Facturas')
+        facturas = ws_fac.get_all_records()
+        
+        hoy = datetime.now()
+        facturas_cliente = [f for f in facturas if str(f.get('ClienteID', '')) == cliente_id and f.get('Pagado') != 'TRUE']
+        
+        total_pendiente = sum(parse_number(f.get('MontoCobrar', 0)) for f in facturas_cliente)
+        
+        # Preparar datos para PDF
+        facturas_data = []
+        for f in sorted(facturas_cliente, key=lambda x: x.get('FechaVencimiento', '')):
+            try:
+                fv = datetime.fromisoformat(f.get('FechaVencimiento', '').split('T')[0])
+                dias = (fv - hoy).days
+                estado = f"Vencida ({abs(dias)}d)" if dias < 0 else f"Vence en {dias}d"
+            except:
+                estado = "Pendiente"
+            
+            facturas_data.append([
+                str(f.get('Consecutivo', '')),
+                f.get('Fecha', '')[:10] if f.get('Fecha') else '',
+                f.get('FechaVencimiento', '')[:10] if f.get('FechaVencimiento') else '',
+                formato_moneda(parse_number(f.get('TotalFactura', 0))),
+                formato_moneda(parse_number(f.get('CORFOGA', 0))),
+                formato_moneda(parse_number(f.get('MontoCobrar', 0))),
+                estado
+            ])
+        
+        cliente_info = {
+            'nombre': cliente.get('Nombre', ''),
+            'identificacion': cliente.get('Identificacion', ''),
+            'diasCredito': cliente.get('DiasCredito', 8)
+        }
+        
+        # Obtener config empresa
+        empresa_config = {}
+        try:
+            ws_config = sheet.worksheet('Configuracion')
+            config = ws_config.get_all_records()
+            for r in config:
+                campo = r.get('Campo', '')
+                if campo:
+                    empresa_config[campo] = r.get('Valor', '')
+        except:
+            pass
+        
+        buffer = crear_estado_cuenta_pdf(cliente_info, facturas_data, total_pendiente, empresa_config)
+        
+        nombre = cliente.get('Nombre', 'Cliente')[:20].replace(' ', '_')
+        return send_file_no_cache(buffer, 'application/pdf', f'Estado_Cuenta_{nombre}_{hoy.strftime("%Y%m%d")}.pdf')
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# =====================
 # INICIAR SERVIDOR
 # =====================
 if __name__ == '__main__':

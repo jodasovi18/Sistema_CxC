@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal de Consulta - Estado de Cuenta</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.321.0/dist/umd/lucide.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-orange: #f59e0b;
+            --accent-red: #ef4444;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border: #334155;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: var(--bg-primary); 
+            color: var(--text-primary); 
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Header */
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .header-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header-logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-green));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .header h1 { font-size: 18px; font-weight: 600; }
+        .header span { font-size: 12px; color: var(--text-secondary); }
+        
+        /* Main container */
+        .main-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        
+        /* Login card */
+        .login-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            width: 100%;
+            max-width: 420px;
+            text-align: center;
+        }
+        .login-card h2 {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+        .login-card p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 32px;
+        }
+        .form-group {
+            text-align: left;
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+        }
+        .form-control {
+            width: 100%;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px 16px;
+            color: var(--text-primary);
+            font-size: 16px;
+            text-align: center;
+            letter-spacing: 8px;
+        }
+        .form-control:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+        .form-control::placeholder {
+            letter-spacing: normal;
+        }
+        .btn {
+            width: 100%;
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .btn-primary {
+            background: var(--accent-blue);
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #2563eb;
+        }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        .btn-danger {
+            background: var(--accent-red);
+            color: white;
+        }
+        .error-msg {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid var(--accent-red);
+            color: var(--accent-red);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .error-msg.show { display: block; }
+        
+        /* Dashboard */
+        .dashboard {
+            display: none;
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .dashboard.active { display: block; }
+        .login-card.hidden { display: none; }
+        
+        .welcome-banner {
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-green));
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .welcome-banner h2 {
+            font-size: 20px;
+            margin-bottom: 4px;
+        }
+        .welcome-banner p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .stat-card .label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+        .stat-card .value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .stat-card.danger .value { color: var(--accent-red); }
+        .stat-card.warning .value { color: var(--accent-orange); }
+        .stat-card.success .value { color: var(--accent-green); }
+        
+        .section-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 24px;
+        }
+        .section-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .section-header h3 {
+            font-size: 15px;
+            font-weight: 600;
+        }
+        
+        .table-wrapper { overflow-x: auto; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 500px;
+        }
+        th, td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            background: var(--bg-tertiary);
+        }
+        td { font-size: 13px; }
+        
+        .badge {
+            display: inline-flex;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .badge-success { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+        .badge-warning { background: rgba(245, 158, 11, 0.15); color: var(--accent-orange); }
+        .badge-danger { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+        
+        .empty-state {
+            padding: 40px;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 16px;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+        
+        /* Loading */
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .loading.show { display: flex; }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid var(--border);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header { padding: 12px 16px; }
+            .header h1 { font-size: 16px; }
+            .main-container { padding: 16px; }
+            .login-card { padding: 24px; }
+            .login-card h2 { font-size: 20px; }
+            .welcome-banner { padding: 20px; }
+            .welcome-banner h2 { font-size: 18px; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+            .stat-card { padding: 16px; }
+            .stat-card .value { font-size: 20px; }
+            .section-header { flex-direction: column; gap: 12px; align-items: flex-start; }
+            .section-header .btn { width: 100%; }
+        }
+        
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading -->
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+    </div>
+    
+    <!-- Header -->
+    <header class="header">
+        <div class="header-logo">
+            <div class="header-logo-icon">
+                <i data-lucide="file-text" style="width:24px;height:24px;color:white"></i>
+            </div>
+            <div>
+                <h1 id="empresa-nombre">Portal de Consulta</h1>
+                <span>Estado de Cuenta</span>
+            </div>
+        </div>
+        <button class="btn btn-secondary" id="btn-logout" style="display:none" onclick="logout()">
+            <i data-lucide="log-out" style="width:16px;height:16px"></i>
+            Salir
+        </button>
+    </header>
+    
+    <!-- Main -->
+    <main class="main-container">
+        <!-- Login Card -->
+        <div class="login-card" id="login-card">
+            <h2>Consulta tu Estado de Cuenta</h2>
+            <p>Ingresá los últimos 4 dígitos de tu cédula para verificar tu identidad</p>
+            
+            <div class="error-msg" id="error-msg">
+                Código incorrecto. Por favor intentá de nuevo.
+            </div>
+            
+            <div class="form-group">
+                <label>Últimos 4 dígitos de tu cédula</label>
+                <input type="text" class="form-control" id="codigo-verificacion" 
+                       maxlength="4" placeholder="****" inputmode="numeric" pattern="[0-9]*"
+                       onkeypress="return event.charCode >= 48 && event.charCode <= 57"
+                       onkeyup="if(this.value.length === 4) verificar()">
+            </div>
+            
+            <button class="btn btn-primary" onclick="verificar()">
+                <i data-lucide="shield-check" style="width:18px;height:18px"></i>
+                Verificar
+            </button>
+        </div>
+        
+        <!-- Dashboard -->
+        <div class="dashboard" id="dashboard">
+            <div class="welcome-banner">
+                <div>
+                    <h2 id="cliente-nombre">Bienvenido</h2>
+                    <p>Acá podés ver el detalle de tus facturas pendientes</p>
+                </div>
+                <button class="btn btn-secondary" onclick="descargarPDF()">
+                    <i data-lucide="download" style="width:16px;height:16px"></i>
+                    Descargar PDF
+                </button>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="label">Total Pendiente</div>
+                    <div class="value" id="total-pendiente">₡0</div>
+                </div>
+                <div class="stat-card danger">
+                    <div class="label">Monto Vencido</div>
+                    <div class="value" id="monto-vencido">₡0</div>
+                </div>
+                <div class="stat-card warning">
+                    <div class="label">Facturas Pendientes</div>
+                    <div class="value" id="fact-pendientes">0</div>
+                </div>
+                <div class="stat-card success">
+                    <div class="label">Días de Crédito</div>
+                    <div class="value" id="dias-credito">8</div>
+                </div>
+            </div>
+            
+            <div class="section-card">
+                <div class="section-header">
+                    <h3>📋 Facturas Pendientes</h3>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Consecutivo</th>
+                                <th>Fecha</th>
+                                <th>Vencimiento</th>
+                                <th>Monto</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-facturas"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="section-card">
+                <div class="section-header">
+                    <h3>✅ Últimos Pagos Registrados</h3>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Factura</th>
+                                <th>Fecha Pago</th>
+                                <th>Monto</th>
+                                <th>Detalle</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-pagos"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <!-- Footer -->
+    <footer class="footer">
+        <p>Sistema de Control de Cuentas por Cobrar</p>
+    </footer>
+    
+    <script>
+        // ===================== CONFIG =====================
+        const API = 'https://web-production-66499.up.railway.app/api';
+        let clienteData = null;
+        let tokenAcceso = null;
+        
+        // Obtener token de la URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('t');
+        
+        // ===================== FUNCIONES =====================
+        function showLoading() { document.getElementById('loading').classList.add('show'); }
+        function hideLoading() { document.getElementById('loading').classList.remove('show'); }
+        
+        function formatMoney(num) {
+            return '₡' + Number(num || 0).toLocaleString('es-CR', { minimumFractionDigits: 2 });
+        }
+        
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            const d = new Date(dateStr.split('T')[0]);
+            return d.toLocaleDateString('es-CR');
+        }
+        
+        async function verificar() {
+            const codigo = document.getElementById('codigo-verificacion').value;
+            if (codigo.length !== 4) {
+                document.getElementById('error-msg').classList.add('show');
+                return;
+            }
+            
+            showLoading();
+            try {
+                const res = await fetch(`${API}/portal/verificar`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token, codigo })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    document.getElementById('error-msg').classList.remove('show');
+                    clienteData = data;
+                    tokenAcceso = data.tokenAcceso;
+                    mostrarDashboard();
+                } else {
+                    document.getElementById('error-msg').textContent = data.error || 'Código incorrecto';
+                    document.getElementById('error-msg').classList.add('show');
+                }
+            } catch (e) {
+                document.getElementById('error-msg').textContent = 'Error de conexión';
+                document.getElementById('error-msg').classList.add('show');
+            }
+            hideLoading();
+        }
+        
+        function mostrarDashboard() {
+            document.getElementById('login-card').classList.add('hidden');
+            document.getElementById('dashboard').classList.add('active');
+            document.getElementById('btn-logout').style.display = 'flex';
+            
+            // Llenar datos
+            document.getElementById('cliente-nombre').textContent = `Hola, ${clienteData.cliente.nombre}`;
+            document.getElementById('total-pendiente').textContent = formatMoney(clienteData.resumen.totalPendiente);
+            document.getElementById('monto-vencido').textContent = formatMoney(clienteData.resumen.totalVencido);
+            document.getElementById('fact-pendientes').textContent = clienteData.resumen.facturasPendientes;
+            document.getElementById('dias-credito').textContent = clienteData.cliente.diasCredito || 8;
+            
+            // Tabla de facturas
+            const tbodyFact = document.getElementById('tabla-facturas');
+            if (clienteData.facturas.length === 0) {
+                tbodyFact.innerHTML = '<tr><td colspan="5" class="empty-state">🎉 No tenés facturas pendientes</td></tr>';
+            } else {
+                tbodyFact.innerHTML = clienteData.facturas.map(f => {
+                    const hoy = new Date();
+                    const venc = new Date(f.fechaVencimiento?.split('T')[0]);
+                    const dias = Math.ceil((venc - hoy) / 86400000);
+                    let badge = '<span class="badge badge-success">Al día</span>';
+                    if (dias < 0) badge = `<span class="badge badge-danger">Vencida (${Math.abs(dias)}d)</span>`;
+                    else if (dias <= 7) badge = `<span class="badge badge-warning">Vence en ${dias}d</span>`;
+                    
+                    return `<tr>
+                        <td><strong>${f.consecutivo}</strong></td>
+                        <td>${formatDate(f.fecha)}</td>
+                        <td>${formatDate(f.fechaVencimiento)}</td>
+                        <td>${formatMoney(f.montoCobrar)}</td>
+                        <td>${badge}</td>
+                    </tr>`;
+                }).join('');
+            }
+            
+            // Tabla de pagos
+            const tbodyPagos = document.getElementById('tabla-pagos');
+            if (!clienteData.pagos || clienteData.pagos.length === 0) {
+                tbodyPagos.innerHTML = '<tr><td colspan="4" class="empty-state">No hay pagos recientes</td></tr>';
+            } else {
+                tbodyPagos.innerHTML = clienteData.pagos.map(p => `<tr>
+                    <td>${p.consecutivo}</td>
+                    <td>${formatDate(p.fechaPago)}</td>
+                    <td>${formatMoney(p.monto)}</td>
+                    <td>${p.detalle || '-'}</td>
+                </tr>`).join('');
+            }
+        }
+        
+        function logout() {
+            clienteData = null;
+            tokenAcceso = null;
+            document.getElementById('login-card').classList.remove('hidden');
+            document.getElementById('dashboard').classList.remove('active');
+            document.getElementById('btn-logout').style.display = 'none';
+            document.getElementById('codigo-verificacion').value = '';
+        }
+        
+        async function descargarPDF() {
+            showLoading();
+            try {
+                const res = await fetch(`${API}/portal/estado-cuenta-pdf?token=${token}&acceso=${tokenAcceso}`);
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `Estado_Cuenta_${clienteData.cliente.nombre.replace(/\s+/g, '_')}.pdf`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                } else {
+                    alert('Error al descargar el PDF');
+                }
+            } catch (e) {
+                alert('Error de conexión');
+            }
+            hideLoading();
+        }
+        
+        // ===================== INIT =====================
+        document.addEventListener('DOMContentLoaded', async () => {
+            lucide.createIcons();
+            
+            if (!token) {
+                document.getElementById('login-card').innerHTML = `
+                    <h2>Link inválido</h2>
+                    <p style="color: var(--accent-red)">Este link de consulta no es válido o ha expirado. 
+                    Por favor contactá a tu proveedor para obtener un nuevo link.</p>
+                `;
+                return;
+            }
+            
+            // Verificar que el token existe y obtener info básica
+            showLoading();
+            try {
+                const res = await fetch(`${API}/portal/info?token=${token}`);
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('empresa-nombre').textContent = data.empresa || 'Portal de Consulta';
+                } else {
+                    document.getElementById('login-card').innerHTML = `
+                        <h2>Link inválido</h2>
+                        <p style="color: var(--accent-red)">${data.error || 'Este link no es válido.'}</p>
+                    `;
+                }
+            } catch (e) {
+                document.getElementById('error-msg').textContent = 'Error de conexión con el servidor';
+                document.getElementById('error-msg').classList.add('show');
+            }
+            hideLoading();
+        });
+    </script>
+</body>
+</html>

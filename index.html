@@ -974,6 +974,7 @@
                     <td><span class="badge ${activo ? 'badge-success' : 'badge-warning'}">${activo ? 'Activo' : 'Inactivo'}</span></td>
                     <td>${cant}</td>
                     <td class="actions-cell">
+                        <button class="btn btn-info btn-sm" onclick="generarLinkPortal('${c.id}', '${c.nombre}')" title="Link de consulta"><i data-lucide="link" style="width:14px;height:14px"></i></button>
                         <button class="btn btn-secondary btn-sm" onclick="editCliente('${c.id}')"><i data-lucide="edit-2" style="width:14px;height:14px"></i></button>
                         <button class="btn btn-secondary btn-sm" onclick="toggleCliente('${c.id}')"><i data-lucide="${activo ? 'eye-off' : 'eye'}" style="width:14px;height:14px"></i></button>
                     </td>
@@ -1028,6 +1029,50 @@
             renderClientes();
             hideLoading();
             toast('Estado actualizado');
+        }
+
+        async function generarLinkPortal(clienteId, clienteNombre) {
+            showLoading();
+            const res = await api(`/portal/generar-link/${clienteId}`, 'POST', {});
+            hideLoading();
+            
+            if (res.success) {
+                const baseUrl = window.location.origin;
+                const fullLink = `${baseUrl}/Sistema_CxC/portal_clientes.html?t=${res.token}`;
+                
+                // Mostrar modal con el link
+                const modal = document.createElement('div');
+                modal.className = 'modal-overlay active';
+                modal.innerHTML = `
+                    <div class="modal" style="max-width:500px">
+                        <div class="modal-header">
+                            <h3>🔗 Link de Consulta</h3>
+                            <button class="modal-close" onclick="this.closest('.modal-overlay').remove()"><i data-lucide="x"></i></button>
+                        </div>
+                        <div class="modal-body">
+                            <p style="margin-bottom:16px">Link generado para <strong>${clienteNombre}</strong>:</p>
+                            <div style="background:var(--bg-tertiary);padding:12px;border-radius:8px;word-break:break-all;font-size:13px;margin-bottom:16px">
+                                ${fullLink}
+                            </div>
+                            <p style="color:var(--text-secondary);font-size:12px;margin-bottom:16px">
+                                El cliente deberá ingresar los últimos 4 dígitos de su cédula para verificar su identidad.
+                            </p>
+                            <div style="display:flex;gap:8px">
+                                <button class="btn btn-primary" onclick="navigator.clipboard.writeText('${fullLink}'); toast('Link copiado'); this.closest('.modal-overlay').remove()">
+                                    <i data-lucide="copy" style="width:16px;height:16px"></i> Copiar Link
+                                </button>
+                                <button class="btn btn-success" onclick="window.open('https://wa.me/?text=${encodeURIComponent('Hola! Acá podés consultar tu estado de cuenta: ' + fullLink)}', '_blank')">
+                                    <i data-lucide="message-circle" style="width:16px;height:16px"></i> Enviar WhatsApp
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                lucide.createIcons();
+            } else {
+                toast('Error al generar link', 'error');
+            }
         }
 
         function clearClienteForm() {
