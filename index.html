@@ -1076,8 +1076,8 @@
             document.querySelector(`[data-section="${s}"]`).classList.add('active');
             closeSidebarOnMobile();
             
-            // Cargar datos de antigüedad si es esa sección
-            if (s === 'antiguedad' && !state.antiguedad) {
+            // Cargar datos de antigüedad siempre que se entre a esa sección
+            if (s === 'antiguedad') {
                 loadAntiguedad();
             }
         }
@@ -2481,15 +2481,21 @@
             try {
                 const res = await api(`/factura/${facturaId}`);
                 if (res.success && res.factura) {
+                    const consecutivo = res.factura.Consecutivo || facturaId;
+                    
+                    // Refrescar lista de facturas para tener datos actualizados
+                    await loadFacturas();
+                    
                     // Ir a facturas y mostrar la factura
                     showSection('facturas');
-                    document.getElementById('buscar-factura').value = res.factura.Consecutivo || facturaId;
+                    document.getElementById('buscar-factura').value = consecutivo;
                     renderFacturas();
-                    toast(`Factura ${res.factura.Consecutivo || facturaId} encontrada`);
+                    toast(`Factura ${consecutivo} encontrada`);
                 } else {
                     toast('Factura no encontrada', 'error');
                 }
             } catch (e) {
+                console.error('Error:', e);
                 toast('Error al buscar factura', 'error');
             }
             hideLoading();
