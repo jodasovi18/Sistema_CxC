@@ -910,7 +910,7 @@ def send_file_no_cache(buffer, mimetype, filename):
         buffer,
         mimetype=mimetype,
         as_attachment=True,
-        attachment_filename=filename
+        download_name=filename
     ))
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response.headers['Pragma'] = 'no-cache'
@@ -1107,38 +1107,58 @@ def reporte_semanal_pdf():
     """Genera reporte semanal en PDF"""
     try:
         sheet = get_sheet()
-        ws = sheet.worksheet('Facturas')
-        facturas = ws.get_all_records()
+        ws = get_or_create_worksheet(sheet, 'Facturas', HEADERS_FACTURAS)
+        
+        try:
+            facturas = ws.get_all_records()
+        except:
+            facturas = []
+        
+        # Obtener nombre de empresa de la configuración
+        nombre_empresa = "EMPRESA"
+        try:
+            ws_config = sheet.worksheet('Configuracion')
+            config_records = ws_config.get_all_records()
+            for r in config_records:
+                if r.get('Campo') == 'nombre':
+                    nombre_empresa = r.get('Valor', 'EMPRESA')
+                    break
+        except:
+            pass
         
         hoy = datetime.now()
         
-        pendientes = [f for f in facturas if f.get('Pagado') != 'TRUE']
+        pendientes = [f for f in facturas if f.get('Pagado') != 'TRUE' and f.get('Estado') != 'Compensado']
         vencidas = []
         proximas = []
         
         for f in pendientes:
             try:
-                fv = datetime.fromisoformat(f.get('FechaVencimiento', '').split('T')[0])
+                fv_str = f.get('FechaVencimiento', '')
+                if not fv_str:
+                    continue
+                fv = datetime.strptime(fv_str.split('T')[0], '%Y-%m-%d')
                 dias = (fv - hoy).days
                 if dias < 0:
                     vencidas.append({**f, 'diasAtraso': abs(dias)})
                 elif dias <= 7:
                     proximas.append({**f, 'diasParaVencer': dias})
-            except:
+            except Exception as e:
+                print(f"Error procesando fecha: {e}")
                 pass
         
         total_pendiente = sum(parse_number(f.get('MontoCobrar')) for f in pendientes)
         total_vencido = sum(parse_number(f.get('MontoCobrar')) for f in vencidas)
         
         # Preparar datos para PDF
-        headers = ['Consecutivo', 'Cliente', 'Fecha', 'Vencimiento', 'Días', 'Monto (CRC)', 'Estado']
+        headers = ['Consecutivo', 'Cliente', 'Fecha', 'Vencimiento', 'Dias', 'Monto (CRC)', 'Estado']
         datos = []
         
         # Vencidas primero
         for f in sorted(vencidas, key=lambda x: x.get('diasAtraso', 0), reverse=True):
             datos.append([
                 str(f.get('Consecutivo', '')),
-                str(f.get('ClienteNombre', ''))[:25],
+                limpiar_texto(str(f.get('ClienteNombre', ''))[:25]),
                 f.get('Fecha', '')[:10],
                 f.get('FechaVencimiento', '')[:10],
                 str(f.get('diasAtraso', 0)),
@@ -1150,7 +1170,7 @@ def reporte_semanal_pdf():
         for f in sorted(proximas, key=lambda x: x.get('diasParaVencer', 0)):
             datos.append([
                 str(f.get('Consecutivo', '')),
-                str(f.get('ClienteNombre', ''))[:25],
+                limpiar_texto(str(f.get('ClienteNombre', ''))[:25]),
                 f.get('Fecha', '')[:10],
                 f.get('FechaVencimiento', '')[:10],
                 str(f.get('diasParaVencer', 0)),
@@ -1159,21 +1179,22 @@ def reporte_semanal_pdf():
             ])
         
         resumen = [
-            f"<b>Total por Cobrar:</b> {formato_moneda(total_pendiente)}",
+            f"<b>Total por Cobrar:</b> CRC {formato_moneda(total_pendiente)}",
             f"<b>Facturas Pendientes:</b> {len(pendientes)}",
-            f"<b>Facturas Vencidas:</b> {len(vencidas)} ({formato_moneda(total_vencido)})",
+            f"<b>Facturas Vencidas:</b> {len(vencidas)} (CRC {formato_moneda(total_vencido)})",
         ]
         
         col_widths = [1.5*inch, 1.8*inch, 0.8*inch, 0.8*inch, 0.5*inch, 1.1*inch, 1*inch]
         
         buffer = crear_pdf_reporte(
-            "REPORTE SEMANAL CxC - Gerald Ramírez",
+            f"REPORTE SEMANAL CxC - {limpiar_texto(nombre_empresa)}",
             f"Generado: {hoy.strftime('%d/%m/%Y %H:%M')}",
             headers, datos, col_widths, resumen
         )
         
         return send_file_no_cache(buffer, 'application/pdf', f'Reporte_Semanal_{hoy.strftime("%Y%m%d")}.pdf')
     except Exception as e:
+        print(f"Error en reporte_semanal_pdf: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reportes/cliente/<cliente_id>/pdf', methods=['GET'])
@@ -1272,16 +1293,35 @@ def reporte_vencidas_pdf():
     """Reporte de facturas vencidas en PDF"""
     try:
         sheet = get_sheet()
-        ws = sheet.worksheet('Facturas')
-        facturas = ws.get_all_records()
+        ws = get_or_create_worksheet(sheet, 'Facturas', HEADERS_FACTURAS)
+        
+        try:
+            facturas = ws.get_all_records()
+        except:
+            facturas = []
+        
+        # Obtener nombre de empresa
+        nombre_empresa = "EMPRESA"
+        try:
+            ws_config = sheet.worksheet('Configuracion')
+            config_records = ws_config.get_all_records()
+            for r in config_records:
+                if r.get('Campo') == 'nombre':
+                    nombre_empresa = r.get('Valor', 'EMPRESA')
+                    break
+        except:
+            pass
         
         hoy = datetime.now()
         vencidas = []
         
         for f in facturas:
-            if f.get('Pagado') != 'TRUE':
+            if f.get('Pagado') != 'TRUE' and f.get('Estado') != 'Compensado':
                 try:
-                    fv = datetime.fromisoformat(f.get('FechaVencimiento', '').split('T')[0])
+                    fv_str = f.get('FechaVencimiento', '')
+                    if not fv_str:
+                        continue
+                    fv = datetime.strptime(fv_str.split('T')[0], '%Y-%m-%d')
                     dias = (hoy - fv).days
                     if dias > 0:
                         vencidas.append({**f, 'diasAtraso': dias})
@@ -1291,13 +1331,13 @@ def reporte_vencidas_pdf():
         vencidas.sort(key=lambda x: x.get('diasAtraso', 0), reverse=True)
         total_vencido = sum(parse_number(f.get('MontoCobrar')) for f in vencidas)
         
-        headers = ['Consecutivo', 'Cliente', 'Cédula', 'Fecha', 'Vencimiento', 'Días Atraso', 'Monto (CRC)']
+        headers = ['Consecutivo', 'Cliente', 'Cedula', 'Fecha', 'Vencimiento', 'Dias Atraso', 'Monto (CRC)']
         datos = []
         
         for f in vencidas:
             datos.append([
                 str(f.get('Consecutivo', '')),
-                str(f.get('ClienteNombre', ''))[:20],
+                limpiar_texto(str(f.get('ClienteNombre', ''))[:20]),
                 str(f.get('CedulaCliente', '')),
                 f.get('Fecha', '')[:10],
                 f.get('FechaVencimiento', '')[:10],
@@ -1307,19 +1347,20 @@ def reporte_vencidas_pdf():
         
         resumen = [
             f"<b>Total Facturas Vencidas:</b> {len(vencidas)}",
-            f"<b>Monto Total Vencido:</b> {formato_moneda(total_vencido)}",
+            f"<b>Monto Total Vencido:</b> CRC {formato_moneda(total_vencido)}",
         ]
         
         col_widths = [1.4*inch, 1.5*inch, 0.9*inch, 0.8*inch, 0.8*inch, 0.7*inch, 1*inch]
         
         buffer = crear_pdf_reporte(
-            "FACTURAS VENCIDAS - Gerald Ramírez",
+            f"FACTURAS VENCIDAS - {limpiar_texto(nombre_empresa)}",
             f"Generado: {hoy.strftime('%d/%m/%Y %H:%M')}",
             headers, datos, col_widths, resumen
         )
         
         return send_file_no_cache(buffer, 'application/pdf', f'Facturas_Vencidas_{hoy.strftime("%Y%m%d")}.pdf')
     except Exception as e:
+        print(f"Error en reporte_vencidas_pdf: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reportes/resumen-clientes/pdf', methods=['GET'])
@@ -1327,11 +1368,18 @@ def reporte_resumen_clientes_pdf():
     """Resumen por cliente en PDF"""
     try:
         sheet = get_sheet()
-        ws_cli = sheet.worksheet('Clientes')
-        ws_fac = sheet.worksheet('Facturas')
+        ws_cli = get_or_create_worksheet(sheet, 'Clientes', HEADERS_CLIENTES)
+        ws_fac = get_or_create_worksheet(sheet, 'Facturas', HEADERS_FACTURAS)
         
-        clientes = ws_cli.get_all_records()
-        facturas = ws_fac.get_all_records()
+        try:
+            clientes = ws_cli.get_all_records()
+        except:
+            clientes = []
+        
+        try:
+            facturas = ws_fac.get_all_records()
+        except:
+            facturas = []
         
         hoy = datetime.now()
         resumen_data = []
@@ -1345,13 +1393,16 @@ def reporte_resumen_clientes_pdf():
             if not facs:
                 continue
             
-            pendientes = [f for f in facs if f.get('Pagado') != 'TRUE']
+            pendientes = [f for f in facs if f.get('Pagado') != 'TRUE' and f.get('Estado') != 'Compensado']
             monto_pend = sum(parse_number(f.get('MontoCobrar')) for f in pendientes)
             
             monto_venc = 0
             for f in pendientes:
                 try:
-                    fv = datetime.fromisoformat(f.get('FechaVencimiento', '').split('T')[0])
+                    fv_str = f.get('FechaVencimiento', '')
+                    if not fv_str:
+                        continue
+                    fv = datetime.strptime(fv_str.split('T')[0], '%Y-%m-%d')
                     if fv < hoy:
                         monto_venc += parse_number(f.get('MontoCobrar'))
                 except:
@@ -1370,12 +1421,12 @@ def reporte_resumen_clientes_pdf():
         
         resumen_data.sort(key=lambda x: x['monto'], reverse=True)
         
-        headers = ['Cliente', 'Identificación', 'Fact. Pend.', 'Pendiente (CRC)', 'Vencido']
+        headers = ['Cliente', 'Identificacion', 'Fact. Pend.', 'Pendiente (CRC)', 'Vencido']
         datos = []
         
         for r in resumen_data:
             datos.append([
-                r['nombre'][:25],
+                limpiar_texto(r['nombre'][:25]),
                 str(r['identificacion']),
                 str(r['pendientes']),
                 formato_moneda(r['monto']),
@@ -1388,8 +1439,8 @@ def reporte_resumen_clientes_pdf():
         
         resumen = [
             f"<b>Total Clientes con Saldo:</b> {len(resumen_data)}",
-            f"<b>Total por Cobrar:</b> {formato_moneda(total_pendiente)}",
-            f"<b>Total Vencido:</b> {formato_moneda(total_vencido)}",
+            f"<b>Total por Cobrar:</b> CRC {formato_moneda(total_pendiente)}",
+            f"<b>Total Vencido:</b> CRC {formato_moneda(total_vencido)}",
         ]
         
         col_widths = [2*inch, 1.2*inch, 0.8*inch, 1.3*inch, 1.3*inch]
@@ -1402,16 +1453,23 @@ def reporte_resumen_clientes_pdf():
         
         return send_file_no_cache(buffer, 'application/pdf', f'Resumen_Clientes_{hoy.strftime("%Y%m%d")}.pdf')
     except Exception as e:
+        print(f"Error en reporte_resumen_clientes_pdf: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # =====================
 # REPORTES EXCEL
 # =====================
-    """Genera reporte semanal de CxC"""
+@app.route('/api/reportes/semanal', methods=['GET'])
+def reporte_semanal_excel():
+    """Genera reporte semanal de CxC en Excel"""
     try:
         sheet = get_sheet()
-        ws = sheet.worksheet('Facturas')
-        facturas = ws.get_all_records()
+        ws = get_or_create_worksheet(sheet, 'Facturas', HEADERS_FACTURAS)
+        
+        try:
+            facturas = ws.get_all_records()
+        except:
+            facturas = []
         
         hoy = datetime.now()
         
@@ -2316,16 +2374,21 @@ def portal_estado_cuenta_pdf():
         
         # Buscar cliente
         ws_cli = sheet.worksheet('Clientes')
-        clientes = ws_cli.get_all_records()
+        try:
+            clientes = ws_cli.get_all_records()
+        except Exception as e:
+            print(f"Error leyendo clientes: {e}")
+            return jsonify({'success': False, 'error': 'Error leyendo datos de clientes'}), 500
         
         cliente = None
         for c in clientes:
-            if c.get('TokenPortal') == token:
+            # Buscar por TokenPortal o por ID si el token coincide con identificación
+            if c.get('TokenPortal') == token or str(c.get('ID', '')) == token or str(c.get('Identificacion', '')) == token:
                 cliente = c
                 break
         
         if not cliente:
-            return jsonify({'success': False, 'error': 'Token inválido'}), 404
+            return jsonify({'success': False, 'error': 'Token inválido o cliente no encontrado'}), 404
         
         cliente_id = str(cliente.get('ID', ''))
         
@@ -3014,11 +3077,11 @@ def export_antiguedad_pdf():
             
             table_data.append([
                 r.get('Consecutivo', '')[:20],
-                r.get('ClienteNombre', '')[:25],
+                limpiar_texto(r.get('ClienteNombre', '')[:25]),
                 fecha_venc_str,
-                f"₡{monto_cobrar:,.0f}",
-                f"₡{total_abonado:,.0f}",
-                f"₡{saldo:,.0f}",
+                formato_moneda(monto_cobrar),
+                formato_moneda(total_abonado),
+                formato_moneda(saldo),
                 str(dias_vencido),
                 categoria
             ])
@@ -3043,12 +3106,12 @@ def export_antiguedad_pdf():
         elements.append(Spacer(1, 20))
         total_cartera = sum(totales.values())
         resumen_data = [
-            ['RESUMEN', 'Monto', '%'],
-            ['0-30 días', f"₡{totales['corriente']:,.0f}", f"{(totales['corriente']/total_cartera*100) if total_cartera > 0 else 0:.1f}%"],
-            ['31-60 días', f"₡{totales['dias_31']:,.0f}", f"{(totales['dias_31']/total_cartera*100) if total_cartera > 0 else 0:.1f}%"],
-            ['61-90 días', f"₡{totales['dias_61']:,.0f}", f"{(totales['dias_61']/total_cartera*100) if total_cartera > 0 else 0:.1f}%"],
-            ['+90 días', f"₡{totales['dias_90']:,.0f}", f"{(totales['dias_90']/total_cartera*100) if total_cartera > 0 else 0:.1f}%"],
-            ['TOTAL', f"₡{total_cartera:,.0f}", '100%']
+            ['RESUMEN', 'Monto (CRC)', '%'],
+            ['0-30 dias', formato_moneda(totales['corriente']), f"{(totales['corriente']/total_cartera*100) if total_cartera > 0 else 0:.1f}%"],
+            ['31-60 dias', formato_moneda(totales['dias_31']), f"{(totales['dias_31']/total_cartera*100) if total_cartera > 0 else 0:.1f}%"],
+            ['61-90 dias', formato_moneda(totales['dias_61']), f"{(totales['dias_61']/total_cartera*100) if total_cartera > 0 else 0:.1f}%"],
+            ['+90 dias', formato_moneda(totales['dias_90']), f"{(totales['dias_90']/total_cartera*100) if total_cartera > 0 else 0:.1f}%"],
+            ['TOTAL', formato_moneda(total_cartera), '100%']
         ]
         
         resumen_table = Table(resumen_data, colWidths=[1.5*inch, 1.5*inch, 1*inch])
