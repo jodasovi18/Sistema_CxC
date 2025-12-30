@@ -602,7 +602,12 @@ def add_facturas_batch():
         
         # Obtener consecutivos existentes para evitar duplicados
         # Normalizar quitando ceros iniciales para comparación
-        existing_records = ws.get_all_records()
+        try:
+            existing_records = ws.get_all_records()
+        except Exception as e:
+            print(f"Advertencia al leer facturas existentes: {e}")
+            existing_records = []
+        
         existing_consecutivos = set(str(r.get('Consecutivo', '')).strip().lstrip('0') for r in existing_records)
         
         rows = []
