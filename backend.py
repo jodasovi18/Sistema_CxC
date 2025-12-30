@@ -261,6 +261,44 @@ def get_negocios():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/negocios/debug', methods=['GET'])
+def debug_negocios():
+    """Endpoint de diagnóstico para verificar configuración de negocios"""
+    debug_info = {
+        'MASTER_SHEET_ID_configurado': bool(MASTER_SHEET_ID),
+        'MASTER_SHEET_ID_valor': MASTER_SHEET_ID[:15] + '...' if MASTER_SHEET_ID else 'NO CONFIGURADO',
+        'GOOGLE_CREDENTIALS_JSON_configurado': bool(GOOGLE_CREDENTIALS_JSON),
+        'negocios_cargados': 0,
+        'master_sheet_conexion': False,
+        'hoja_negocios_existe': False,
+        'error': None
+    }
+    
+    try:
+        negocios = load_negocios()
+        debug_info['negocios_cargados'] = len(negocios)
+    except Exception as e:
+        debug_info['error_carga'] = str(e)
+    
+    try:
+        master = get_master_sheet()
+        if master:
+            debug_info['master_sheet_conexion'] = True
+            debug_info['master_sheet_titulo'] = master.title
+            try:
+                ws = master.worksheet('Negocios')
+                debug_info['hoja_negocios_existe'] = True
+                debug_info['filas_en_hoja'] = len(ws.get_all_records())
+            except Exception as e:
+                debug_info['hoja_negocios_existe'] = False
+                debug_info['error_hoja'] = str(e)
+        else:
+            debug_info['error'] = 'get_master_sheet() retornó None'
+    except Exception as e:
+        debug_info['error'] = str(e)
+    
+    return jsonify(debug_info)
+
 @app.route('/api/negocios', methods=['POST'])
 def add_negocio():
     """Agrega un nuevo negocio"""
