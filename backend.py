@@ -46,26 +46,99 @@ GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_CREDENTIALS_JSON')
 # Negocio activo (se cambia dinámicamente)
 current_sheet_id = None
 
+# Sheet maestro para guardar la lista de negocios (persistente)
+# Este Sheet ID debe configurarse como variable de entorno MASTER_SHEET_ID
+MASTER_SHEET_ID = os.environ.get('MASTER_SHEET_ID', '')
+
+def get_master_sheet():
+    """Obtiene conexión al Sheet maestro"""
+    if not MASTER_SHEET_ID:
+        return None
+    
+    scopes = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+    ]
+    
+    if GOOGLE_CREDENTIALS_JSON:
+        creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    elif os.path.exists(CREDENTIALS_FILE):
+        creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
+    else:
+        return None
+    
+    client = gspread.authorize(creds)
+    return client.open_by_key(MASTER_SHEET_ID)
+
 def load_negocios():
-    """Carga la lista de negocios desde archivo JSON o variable de entorno"""
-    # Primero intentar variable de entorno (para la nube)
+    """Carga la lista de negocios desde Sheet maestro, variable de entorno o archivo local"""
+    # 1. Primero intentar desde Sheet maestro (más persistente)
+    try:
+        master = get_master_sheet()
+        if master:
+            try:
+                ws = master.worksheet('Negocios')
+                records = ws.get_all_records()
+                negocios = []
+                for r in records:
+                    negocios.append({
+                        'id': str(r.get('ID', '')),
+                        'nombre': r.get('Nombre', ''),
+                        'sheetId': r.get('SheetID', ''),
+                        'descripcion': r.get('Descripcion', ''),
+                        'activo': r.get('Activo', 'TRUE') == 'TRUE'
+                    })
+                return negocios
+            except:
+                pass
+    except:
+        pass
+    
+    # 2. Intentar variable de entorno (para la nube sin Sheet maestro)
     negocios_env = os.environ.get('NEGOCIOS_JSON')
     if negocios_env:
         return json.loads(negocios_env)
-    # Si no, usar archivo local
+    
+    # 3. Si no, usar archivo local
     if os.path.exists(NEGOCIOS_FILE):
         with open(NEGOCIOS_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
     return []
 
 def save_negocios(negocios):
-    """Guarda la lista de negocios en archivo JSON"""
-    # En la nube no podemos escribir archivos, pero guardamos en memoria
-    if os.environ.get('NEGOCIOS_JSON'):
-        # En producción, esto requeriría una base de datos
-        # Por ahora solo actualizamos en memoria
+    """Guarda la lista de negocios en Sheet maestro, variable de entorno o archivo local"""
+    # 1. Guardar en Sheet maestro si está configurado
+    try:
+        master = get_master_sheet()
+        if master:
+            try:
+                ws = master.worksheet('Negocios')
+            except:
+                ws = master.add_worksheet(title='Negocios', rows=100, cols=5)
+                ws.append_row(['ID', 'Nombre', 'SheetID', 'Descripcion', 'Activo'])
+            
+            # Limpiar y reescribir
+            ws.clear()
+            ws.append_row(['ID', 'Nombre', 'SheetID', 'Descripcion', 'Activo'])
+            
+            for n in negocios:
+                ws.append_row([
+                    n.get('id', ''),
+                    n.get('nombre', ''),
+                    n.get('sheetId', ''),
+                    n.get('descripcion', ''),
+                    'TRUE' if n.get('activo', True) else 'FALSE'
+                ])
+            return
+    except Exception as e:
+        print(f"Error guardando en Sheet maestro: {e}")
+    
+    # 2. Guardar en variable de entorno (memoria, se pierde al reiniciar)
+    if os.environ.get('NEGOCIOS_JSON') is not None:
         os.environ['NEGOCIOS_JSON'] = json.dumps(negocios, ensure_ascii=False)
     else:
+        # 3. Guardar en archivo local
         with open(NEGOCIOS_FILE, 'w', encoding='utf-8') as f:
             json.dump(negocios, f, ensure_ascii=False, indent=2)
 
@@ -1939,18 +2012,29 @@ def save_config():
         
         try:
             ws = sheet.worksheet('Configuracion')
+            # Obtener configuración existente para preservar campos extra
+            existing_records = ws.get_all_records()
+            existing_config = {}
+            for r in existing_records:
+                campo = r.get('Campo', '')
+                valor = r.get('Valor', '')
+                if campo:
+                    existing_config[campo] = valor
         except:
             ws = sheet.add_worksheet(title='Configuracion', rows=20, cols=2)
             ws.append_row(HEADERS_CONFIG)
+            existing_config = {}
         
-        # Limpiar hoja y reescribir
+        # Actualizar con los nuevos valores
+        campos_guardar = ['nombre', 'cedula', 'descripcion', 'telefono', 'email', 'direccion', 'mensaje']
+        for campo in campos_guardar:
+            existing_config[campo] = data.get(campo, '')
+        
+        # Limpiar hoja y reescribir TODO (incluyendo campos extra como dashboardToken)
         ws.clear()
         ws.append_row(HEADERS_CONFIG)
         
-        # Guardar cada campo
-        campos = ['nombre', 'cedula', 'descripcion', 'telefono', 'email', 'direccion', 'mensaje']
-        for campo in campos:
-            valor = data.get(campo, '')
+        for campo, valor in existing_config.items():
             ws.append_row([campo, valor])
         
         return jsonify({'success': True})
