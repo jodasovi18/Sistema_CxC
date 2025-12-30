@@ -303,6 +303,7 @@
                 <li class="nav-item"><a class="nav-link" data-section="facturas" onclick="showSection('facturas')"><i data-lucide="file-text"></i>Facturas</a></li>
                 <li class="nav-item"><a class="nav-link" data-section="importar" onclick="showSection('importar')"><i data-lucide="upload"></i>Importar Excel</a></li>
                 <li class="nav-item"><a class="nav-link" data-section="clientes" onclick="showSection('clientes')"><i data-lucide="users"></i>Clientes</a></li>
+                <li class="nav-item"><a class="nav-link" data-section="antiguedad" onclick="showSection('antiguedad')"><i data-lucide="clock"></i>Antigüedad</a></li>
                 <li class="nav-item"><a class="nav-link" data-section="reportes" onclick="showSection('reportes')"><i data-lucide="bar-chart-3"></i>Reportes</a></li>
                 <li class="nav-item"><a class="nav-link" data-section="config" onclick="showSection('config')"><i data-lucide="settings"></i>Configuración</a></li>
             </ul>
@@ -484,6 +485,81 @@
                 </div>
             </div>
 
+            <!-- ANTIGÜEDAD DE CARTERA -->
+            <div id="section-antiguedad" class="section-panel">
+                <div class="header">
+                    <h2>Antigüedad de Cartera</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="loadAntiguedad()"><i data-lucide="refresh-cw" style="width:16px;height:16px"></i>Actualizar</button>
+                        <button class="btn btn-primary" onclick="exportAntiguedadExcel()"><i data-lucide="table" style="width:16px;height:16px"></i>Excel</button>
+                        <button class="btn btn-danger" onclick="exportAntiguedadPDF()"><i data-lucide="file-text" style="width:16px;height:16px"></i>PDF</button>
+                    </div>
+                </div>
+                <div class="content">
+                    <!-- Resumen de Antigüedad -->
+                    <div class="stats-grid" style="margin-bottom:24px">
+                        <div class="stat-card" style="border-left:4px solid var(--accent-green)">
+                            <div class="label">0-30 días (Corriente)</div>
+                            <div class="value" id="ant-corriente">₡0</div>
+                            <small class="text-secondary" id="ant-corriente-pct">0%</small>
+                        </div>
+                        <div class="stat-card" style="border-left:4px solid var(--accent-orange)">
+                            <div class="label">31-60 días</div>
+                            <div class="value" id="ant-31-60">₡0</div>
+                            <small class="text-secondary" id="ant-31-60-pct">0%</small>
+                        </div>
+                        <div class="stat-card" style="border-left:4px solid #f97316">
+                            <div class="label">61-90 días</div>
+                            <div class="value" id="ant-61-90">₡0</div>
+                            <small class="text-secondary" id="ant-61-90-pct">0%</small>
+                        </div>
+                        <div class="stat-card" style="border-left:4px solid var(--accent-red)">
+                            <div class="label">+90 días (Crítico)</div>
+                            <div class="value" id="ant-90-mas">₡0</div>
+                            <small class="text-secondary" id="ant-90-mas-pct">0%</small>
+                        </div>
+                    </div>
+
+                    <!-- Gráfico de Barras -->
+                    <div class="table-container" style="margin-bottom:24px;padding:24px">
+                        <h3 style="margin-bottom:16px">📊 Distribución de Cartera</h3>
+                        <canvas id="chart-antiguedad" height="200"></canvas>
+                    </div>
+
+                    <!-- Tabla de Facturas por Antigüedad -->
+                    <div class="table-container">
+                        <div class="table-header">
+                            <h3>📋 Detalle por Categoría</h3>
+                            <select class="filter-select" id="filtro-antiguedad" onchange="renderAntiguedad()">
+                                <option value="todas">Todas las categorías</option>
+                                <option value="corriente">0-30 días</option>
+                                <option value="dias_31_60">31-60 días</option>
+                                <option value="dias_61_90">61-90 días</option>
+                                <option value="dias_90_mas">+90 días</option>
+                            </select>
+                        </div>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Consecutivo</th>
+                                        <th>Cliente</th>
+                                        <th>Vencimiento</th>
+                                        <th>Monto</th>
+                                        <th>Abonado</th>
+                                        <th>Saldo</th>
+                                        <th>Días</th>
+                                        <th>Categoría</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tabla-antiguedad"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- REPORTES -->
             <div id="section-reportes" class="section-panel">
                 <div class="header"><h2>Reportes</h2></div>
@@ -512,6 +588,14 @@
                             <div style="display:flex;gap:8px;margin-top:12px">
                                 <button class="btn btn-sm btn-secondary" onclick="openModal('modal-reporte-cliente')"><i data-lucide="table" style="width:14px;height:14px"></i>Excel</button>
                                 <button class="btn btn-sm btn-danger" onclick="openModal('modal-reporte-cliente-pdf')"><i data-lucide="file-text" style="width:14px;height:14px"></i>PDF</button>
+                            </div>
+                        </div>
+                        <div class="report-card">
+                            <h4><i data-lucide="clock" style="width:24px;height:24px;color:var(--accent-orange)"></i>Antigüedad de Cartera</h4>
+                            <p>Clasificación por días de vencimiento.</p>
+                            <div style="display:flex;gap:8px;margin-top:12px">
+                                <button class="btn btn-sm btn-secondary" onclick="exportAntiguedadExcel()"><i data-lucide="table" style="width:14px;height:14px"></i>Excel</button>
+                                <button class="btn btn-sm btn-danger" onclick="exportAntiguedadPDF()"><i data-lucide="file-text" style="width:14px;height:14px"></i>PDF</button>
                             </div>
                         </div>
                         <div class="report-card">
@@ -835,13 +919,83 @@
         </div>
     </div>
 
+    <!-- Modal Historial de Abonos -->
+    <div class="modal-overlay" id="modal-abonos">
+        <div class="modal" style="max-width:700px">
+            <div class="modal-header">
+                <h3>💰 Historial de Abonos</h3>
+                <button class="modal-close" onclick="closeModal('modal-abonos')"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="abonos-factura-id">
+                <div style="background:var(--bg-tertiary);border-radius:12px;padding:16px;margin-bottom:20px">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                        <div><strong style="color:var(--text-secondary)">Factura:</strong><br><span id="abonos-consecutivo" style="font-size:16px"></span></div>
+                        <div><strong style="color:var(--text-secondary)">Cliente:</strong><br><span id="abonos-cliente"></span></div>
+                        <div><strong style="color:var(--text-secondary)">Monto a Cobrar:</strong><br><span id="abonos-monto-cobrar" class="monto-cobrar"></span></div>
+                        <div><strong style="color:var(--text-secondary)">Total Abonado:</strong><br><span id="abonos-total" style="color:var(--accent-green)"></span></div>
+                    </div>
+                    <hr style="border-color:var(--border);margin:12px 0">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <div><strong>Saldo Pendiente:</strong></div>
+                        <div id="abonos-saldo" style="font-size:20px;font-weight:700;color:var(--accent-orange)"></div>
+                    </div>
+                </div>
+                
+                <!-- Formulario para nuevo abono -->
+                <div style="background:var(--bg-secondary);border:1px dashed var(--border);border-radius:12px;padding:16px;margin-bottom:20px">
+                    <h4 style="margin-bottom:12px;color:var(--accent-blue)">➕ Registrar Nuevo Abono</h4>
+                    <div class="form-row">
+                        <div class="form-group" style="margin-bottom:0">
+                            <label>Monto</label>
+                            <input type="number" class="form-control" id="nuevo-abono-monto" step="0.01" placeholder="0.00">
+                        </div>
+                        <div class="form-group" style="margin-bottom:0">
+                            <label>Fecha</label>
+                            <input type="date" class="form-control" id="nuevo-abono-fecha">
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-top:12px">
+                        <div class="form-group" style="margin-bottom:0">
+                            <label>Método</label>
+                            <select class="form-control" id="nuevo-abono-metodo">
+                                <option value="Transferencia">Transferencia</option>
+                                <option value="Efectivo">Efectivo</option>
+                                <option value="Cheque">Cheque</option>
+                                <option value="SINPE">SINPE Móvil</option>
+                                <option value="Depósito">Depósito</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0">
+                            <label>Referencia</label>
+                            <input type="text" class="form-control" id="nuevo-abono-referencia" placeholder="Ej: #12345">
+                        </div>
+                    </div>
+                    <button class="btn btn-success" style="margin-top:12px;width:100%" onclick="registrarAbono()">
+                        <i data-lucide="plus" style="width:16px;height:16px"></i> Registrar Abono
+                    </button>
+                </div>
+                
+                <!-- Lista de Abonos -->
+                <h4 style="margin-bottom:12px">📋 Abonos Registrados</h4>
+                <div id="lista-abonos" style="max-height:250px;overflow-y:auto">
+                    <p style="color:var(--text-secondary);text-align:center;padding:20px">Cargando abonos...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('modal-abonos')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
     <div class="toast-container" id="toasts"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script>
         // ===================== CONFIG =====================
         const API = 'https://web-production-66499.up.railway.app/api';
-        let state = { clientes: [], facturas: [], negocios: [], connected: false, excelData: [], excelCols: [] };
+        let state = { clientes: [], facturas: [], negocios: [], connected: false, excelData: [], excelCols: [], antiguedad: null };
+        let chartAntiguedad = null;
 
         // ===================== MOBILE SIDEBAR =====================
         function toggleSidebar() {
@@ -919,6 +1073,11 @@
             document.getElementById('section-' + s).classList.add('active');
             document.querySelector(`[data-section="${s}"]`).classList.add('active');
             closeSidebarOnMobile();
+            
+            // Cargar datos de antigüedad si es esa sección
+            if (s === 'antiguedad' && !state.antiguedad) {
+                loadAntiguedad();
+            }
         }
 
         function openModal(id) { 
@@ -1167,7 +1326,8 @@
                     <td class="actions-cell">
                         ${!f.pagado && f.estado !== 'Compensado' ? (esNC ? 
                             `<button class="btn btn-primary btn-sm" onclick="openCompensarNC('${f.id}')" title="Compensar"><i data-lucide="link" style="width:14px;height:14px"></i></button>` :
-                            `<button class="btn btn-success btn-sm" onclick="openPago('${f.id}')" title="Pago"><i data-lucide="check" style="width:14px;height:14px"></i></button>`
+                            `<button class="btn btn-success btn-sm" onclick="openPago('${f.id}')" title="Pago"><i data-lucide="check" style="width:14px;height:14px"></i></button>
+                             <button class="btn btn-info btn-sm" onclick="openHistorialAbonos('${f.id}')" title="Abonos"><i data-lucide="wallet" style="width:14px;height:14px"></i></button>`
                         ) : ''}
                         ${f.pagado && f.fechaPago ? `<button class="btn btn-info btn-sm" onclick="verInfoPago('${f.id}')" title="Ver pago"><i data-lucide="info" style="width:14px;height:14px"></i></button>` : ''}
                         <button class="btn btn-secondary btn-sm" onclick="editFactura('${f.id}')"><i data-lucide="edit-2" style="width:14px;height:14px"></i></button>
@@ -2191,6 +2351,247 @@
         dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.borderColor = 'var(--accent-blue)'; });
         dz.addEventListener('dragleave', () => dz.style.borderColor = 'var(--border)');
         dz.addEventListener('drop', e => { e.preventDefault(); dz.style.borderColor = 'var(--border)'; handleFile(e.dataTransfer.files[0]); });
+
+        // ===================== ANTIGÜEDAD DE CARTERA =====================
+        let chartAntiguedad = null;
+        
+        async function loadAntiguedad() {
+            showLoading();
+            const res = await api('/reportes/antiguedad');
+            hideLoading();
+            
+            if (res.success) {
+                state.antiguedad = res.data;
+                renderAntiguedadStats();
+                renderAntiguedadChart();
+                renderAntiguedad();
+            } else {
+                toast('Error cargando antigüedad: ' + res.error, 'error');
+            }
+        }
+
+        function renderAntiguedadStats() {
+            if (!state.antiguedad) return;
+            const { cartera } = state.antiguedad;
+            
+            document.getElementById('ant-corriente').textContent = '₡' + fmt(cartera.corriente.total);
+            document.getElementById('ant-corriente-pct').textContent = cartera.corriente.porcentaje + '% (' + cartera.corriente.cantidad + ' fact.)';
+            
+            document.getElementById('ant-31-60').textContent = '₡' + fmt(cartera.dias_31_60.total);
+            document.getElementById('ant-31-60-pct').textContent = cartera.dias_31_60.porcentaje + '% (' + cartera.dias_31_60.cantidad + ' fact.)';
+            
+            document.getElementById('ant-61-90').textContent = '₡' + fmt(cartera.dias_61_90.total);
+            document.getElementById('ant-61-90-pct').textContent = cartera.dias_61_90.porcentaje + '% (' + cartera.dias_61_90.cantidad + ' fact.)';
+            
+            document.getElementById('ant-90-mas').textContent = '₡' + fmt(cartera.dias_90_mas.total);
+            document.getElementById('ant-90-mas-pct').textContent = cartera.dias_90_mas.porcentaje + '% (' + cartera.dias_90_mas.cantidad + ' fact.)';
+        }
+
+        function renderAntiguedadChart() {
+            if (!state.antiguedad) return;
+            const { cartera } = state.antiguedad;
+            
+            const ctx = document.getElementById('chart-antiguedad');
+            if (!ctx) return;
+            
+            if (chartAntiguedad) chartAntiguedad.destroy();
+            
+            chartAntiguedad = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['0-30 días', '31-60 días', '61-90 días', '+90 días'],
+                    datasets: [{
+                        label: 'Monto',
+                        data: [cartera.corriente.total, cartera.dias_31_60.total, cartera.dias_61_90.total, cartera.dias_90_mas.total],
+                        backgroundColor: ['rgba(16,185,129,0.8)', 'rgba(245,158,11,0.8)', 'rgba(249,115,22,0.8)', 'rgba(239,68,68,0.8)'],
+                        borderColor: ['rgb(16,185,129)', 'rgb(245,158,11)', 'rgb(249,115,22)', 'rgb(239,68,68)'],
+                        borderWidth: 2, borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '₡' + fmt(ctx.raw) } } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { callback: val => '₡' + fmt(val), color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+                        x: { ticks: { color: '#94a3b8' }, grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        function renderAntiguedad() {
+            if (!state.antiguedad) return;
+            const { cartera } = state.antiguedad;
+            const filtro = document.getElementById('filtro-antiguedad')?.value || 'todas';
+            
+            let facturas = [];
+            const catMap = {
+                'corriente': { data: cartera.corriente.facturas, label: '0-30 días', cls: 'badge-success' },
+                'dias_31_60': { data: cartera.dias_31_60.facturas, label: '31-60 días', cls: 'badge-warning' },
+                'dias_61_90': { data: cartera.dias_61_90.facturas, label: '61-90 días', cls: 'badge-warning' },
+                'dias_90_mas': { data: cartera.dias_90_mas.facturas, label: '+90 días', cls: 'badge-danger' }
+            };
+            
+            if (filtro === 'todas') {
+                Object.keys(catMap).forEach(k => {
+                    facturas.push(...catMap[k].data.map(f => ({...f, categoria: catMap[k].label, catClass: catMap[k].cls})));
+                });
+            } else {
+                const cat = catMap[filtro];
+                facturas = cat.data.map(f => ({...f, categoria: cat.label, catClass: cat.cls}));
+            }
+            
+            facturas.sort((a, b) => b.diasVencido - a.diasVencido);
+            
+            const tbody = document.getElementById('tabla-antiguedad');
+            if (!tbody) return;
+            
+            if (facturas.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-secondary)">No hay facturas</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = facturas.map(f => `
+                <tr>
+                    <td><strong>${f.consecutivo}</strong></td>
+                    <td>${f.clienteNombre}</td>
+                    <td>${fmtDate(f.fechaVencimiento)}</td>
+                    <td>₡${fmt(f.montoCobrar)}</td>
+                    <td style="color:var(--accent-green)">₡${fmt(f.totalAbonado || 0)}</td>
+                    <td><strong style="color:var(--accent-orange)">₡${fmt(f.saldoPendiente)}</strong></td>
+                    <td><span class="badge ${f.diasVencido > 60 ? 'badge-danger' : f.diasVencido > 30 ? 'badge-warning' : 'badge-info'}">${f.diasVencido}d</span></td>
+                    <td><span class="badge ${f.catClass}">${f.categoria}</span></td>
+                    <td><button class="btn btn-sm btn-info" onclick="verFacturaDesdeAntiguedad('${f.consecutivo}')"><i data-lucide="eye" style="width:14px;height:14px"></i></button></td>
+                </tr>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        function verFacturaDesdeAntiguedad(consecutivo) {
+            showSection('facturas');
+            document.getElementById('buscar-factura').value = consecutivo;
+            renderFacturas();
+        }
+
+        async function exportAntiguedadExcel() {
+            showLoading();
+            try {
+                const response = await fetch(`${API}/reportes/antiguedad/excel`);
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url;
+                a.download = `antiguedad_cartera_${new Date().toISOString().slice(0,10)}.xlsx`;
+                a.click(); URL.revokeObjectURL(url);
+                toast('Excel descargado');
+            } catch (e) { toast('Error descargando', 'error'); }
+            hideLoading();
+        }
+
+        async function exportAntiguedadPDF() {
+            showLoading();
+            try {
+                const response = await fetch(`${API}/reportes/antiguedad/pdf`);
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url;
+                a.download = `antiguedad_cartera_${new Date().toISOString().slice(0,10)}.pdf`;
+                a.click(); URL.revokeObjectURL(url);
+                toast('PDF descargado');
+            } catch (e) { toast('Error descargando', 'error'); }
+            hideLoading();
+        }
+
+        // ===================== ABONOS PARCIALES =====================
+        async function openHistorialAbonos(facturaId) {
+            const factura = state.facturas.find(f => f.id === facturaId);
+            if (!factura) return;
+            
+            document.getElementById('abonos-factura-id').value = facturaId;
+            document.getElementById('abonos-consecutivo').textContent = factura.consecutivo;
+            document.getElementById('abonos-cliente').textContent = factura.clienteNombre;
+            document.getElementById('abonos-monto-cobrar').textContent = '₡' + fmt(factura.montoCobrar);
+            document.getElementById('nuevo-abono-fecha').value = new Date().toISOString().slice(0, 10);
+            document.getElementById('nuevo-abono-monto').value = '';
+            document.getElementById('nuevo-abono-referencia').value = '';
+            
+            openModal('modal-abonos');
+            await cargarAbonos(facturaId);
+        }
+
+        async function cargarAbonos(facturaId) {
+            const listaEl = document.getElementById('lista-abonos');
+            listaEl.innerHTML = '<p style="text-align:center;padding:20px;color:var(--text-secondary)">Cargando...</p>';
+            
+            const res = await api(`/facturas/${facturaId}/abonos`);
+            
+            if (res.success) {
+                const factura = state.facturas.find(f => f.id === facturaId);
+                const montoCobrar = factura?.montoCobrar || 0;
+                const totalAbonado = res.totalAbonado || 0;
+                const saldo = montoCobrar - totalAbonado;
+                
+                document.getElementById('abonos-total').textContent = '₡' + fmt(totalAbonado);
+                document.getElementById('abonos-saldo').textContent = '₡' + fmt(saldo);
+                
+                if (res.data.length === 0) {
+                    listaEl.innerHTML = '<p style="text-align:center;padding:20px;color:var(--text-secondary)">No hay abonos registrados</p>';
+                } else {
+                    listaEl.innerHTML = res.data.map(a => `
+                        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:var(--bg-tertiary);border-radius:8px;margin-bottom:8px">
+                            <div>
+                                <strong style="color:var(--accent-green)">₡${fmt(a.monto)}</strong>
+                                <br><small style="color:var(--text-secondary)">${fmtDate(a.fecha)} • ${a.metodoPago}${a.referencia ? ' • ' + a.referencia : ''}</small>
+                            </div>
+                            <button class="btn btn-sm btn-danger" onclick="eliminarAbono('${a.id}', '${facturaId}')"><i data-lucide="trash-2" style="width:14px;height:14px"></i></button>
+                        </div>
+                    `).join('');
+                    lucide.createIcons();
+                }
+            }
+        }
+
+        async function registrarAbono() {
+            const facturaId = document.getElementById('abonos-factura-id').value;
+            const monto = parseFloat(document.getElementById('nuevo-abono-monto').value);
+            const fecha = document.getElementById('nuevo-abono-fecha').value;
+            const metodoPago = document.getElementById('nuevo-abono-metodo').value;
+            const referencia = document.getElementById('nuevo-abono-referencia').value;
+            
+            if (!monto || monto <= 0) { toast('Ingresá un monto válido', 'warning'); return; }
+            
+            showLoading();
+            const res = await api('/abonos', 'POST', { facturaId, monto, fecha, metodoPago, referencia });
+            hideLoading();
+            
+            if (res.success) {
+                toast(`Abono de ₡${fmt(monto)} registrado`);
+                document.getElementById('nuevo-abono-monto').value = '';
+                document.getElementById('nuevo-abono-referencia').value = '';
+                await cargarAbonos(facturaId);
+                await loadFacturas();
+                renderFacturas();
+                updateDashboard();
+                if (res.abono?.pagadoCompleto) { closeModal('modal-abonos'); toast('¡Factura pagada!', 'success'); }
+            } else {
+                toast('Error: ' + res.error, 'error');
+            }
+        }
+
+        async function eliminarAbono(abonoId, facturaId) {
+            if (!confirm('¿Eliminar este abono?')) return;
+            showLoading();
+            const res = await api(`/abonos/${abonoId}`, 'DELETE');
+            hideLoading();
+            if (res.success) {
+                toast('Abono eliminado');
+                await cargarAbonos(facturaId);
+                await loadFacturas();
+                renderFacturas();
+                updateDashboard();
+            } else {
+                toast('Error: ' + res.error, 'error');
+            }
+        }
     </script>
 </body>
 </html>

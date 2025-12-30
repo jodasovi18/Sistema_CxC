@@ -240,7 +240,9 @@ HEADERS_CLIENTES = ['ID', 'Identificacion', 'Nombre', 'DiasCredito', 'Activo', '
 HEADERS_FACTURAS = ['ID', 'Consecutivo', 'Fecha', 'ClienteID', 'ClienteNombre', 'CedulaCliente',
                     'TotalFactura', 'CORFOGA', 'OtrosRebajos', 'MontoCobrar', 
                     'FechaVencimiento', 'Pagado', 'FechaPago', 'TipoProducto', 
-                    'OrdenCompra', 'Notas', 'TipoDocumento', 'DocumentoRelacionado', 'Estado']
+                    'OrdenCompra', 'Notas', 'TipoDocumento', 'DocumentoRelacionado', 'Estado',
+                    'TotalAbonado', 'SaldoPendiente']
+HEADERS_ABONOS = ['ID', 'FacturaID', 'Consecutivo', 'Fecha', 'Monto', 'MetodoPago', 'Referencia', 'Notas']
 
 def detectar_tipo_documento(consecutivo):
     """Detecta si es Factura o Nota de Crédito basado en el consecutivo"""
@@ -540,7 +542,9 @@ def get_facturas():
                     'notas': r.get('Notas', ''),
                     'tipoDocumento': tipo_doc,
                     'documentoRelacionado': str(r.get('DocumentoRelacionado', '') or ''),
-                    'estado': estado
+                    'estado': estado,
+                    'totalAbonado': parse_number(r.get('TotalAbonado', 0)),
+                    'saldoPendiente': parse_number(r.get('SaldoPendiente', 0)) or parse_number(r.get('MontoCobrar', 0)) - parse_number(r.get('TotalAbonado', 0))
                 })
             except Exception as row_error:
                 print(f"Error procesando fila: {row_error}")
@@ -2501,6 +2505,657 @@ def verificar_acceso_dashboard():
             'clientes': clientes,
             'facturas': facturas
         })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# =====================
+# ABONOS PARCIALES
+# =====================
+@app.route('/api/abonos', methods=['GET'])
+def get_abonos():
+    """Obtiene todos los abonos, opcionalmente filtrados por factura"""
+    try:
+        factura_id = request.args.get('facturaId')
+        sheet = get_sheet()
+        ws = get_or_create_worksheet(sheet, 'Abonos', HEADERS_ABONOS)
+        
+        try:
+            records = ws.get_all_records()
+        except:
+            records = []
+        
+        abonos = []
+        for r in records:
+            if factura_id and str(r.get('FacturaID', '')) != factura_id:
+                continue
+            abonos.append({
+                'id': str(r.get('ID', '')),
+                'facturaId': str(r.get('FacturaID', '')),
+                'consecutivo': r.get('Consecutivo', ''),
+                'fecha': r.get('Fecha', ''),
+                'monto': parse_number(r.get('Monto', 0)),
+                'metodoPago': r.get('MetodoPago', ''),
+                'referencia': r.get('Referencia', ''),
+                'notas': r.get('Notas', '')
+            })
+        
+        return jsonify({'success': True, 'data': abonos})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/abonos', methods=['POST'])
+def add_abono():
+    """Registra un nuevo abono parcial"""
+    try:
+        data = request.json
+        factura_id = data.get('facturaId')
+        monto = float(data.get('monto', 0))
+        
+        if not factura_id or monto <= 0:
+            return jsonify({'success': False, 'error': 'Factura y monto son requeridos'}), 400
+        
+        sheet = get_sheet()
+        
+        # Obtener la factura para validar
+        ws_facturas = sheet.worksheet('Facturas')
+        cell = ws_facturas.find(factura_id)
+        if not cell:
+            return jsonify({'success': False, 'error': 'Factura no encontrada'}), 404
+        
+        row = cell.row
+        consecutivo_factura = ws_facturas.cell(row, 2).value  # Columna B = Consecutivo
+        monto_cobrar = parse_number(ws_facturas.cell(row, 10).value)  # Columna J = MontoCobrar
+        total_abonado_actual = parse_number(ws_facturas.cell(row, 20).value)  # Columna T = TotalAbonado
+        
+        # Calcular nuevo saldo
+        nuevo_total_abonado = total_abonado_actual + monto
+        nuevo_saldo = monto_cobrar - nuevo_total_abonado
+        
+        if nuevo_saldo < -0.01:  # Permitir pequeña tolerancia por redondeo
+            return jsonify({
+                'success': False, 
+                'error': f'El abono excede el saldo pendiente. Saldo actual: {monto_cobrar - total_abonado_actual:.2f}'
+            }), 400
+        
+        # Registrar el abono
+        ws_abonos = get_or_create_worksheet(sheet, 'Abonos', HEADERS_ABONOS)
+        abono_id = datetime.now().strftime('%Y%m%d%H%M%S%f')[:18]
+        
+        abono_row = [
+            abono_id,
+            factura_id,
+            consecutivo_factura,
+            data.get('fecha', datetime.now().strftime('%Y-%m-%d')),
+            monto,
+            data.get('metodoPago', 'Transferencia'),
+            data.get('referencia', ''),
+            data.get('notas', '')
+        ]
+        ws_abonos.append_row(abono_row)
+        
+        # Actualizar la factura con el nuevo total abonado y saldo
+        ws_facturas.update_cell(row, 20, nuevo_total_abonado)  # TotalAbonado
+        ws_facturas.update_cell(row, 21, max(0, nuevo_saldo))  # SaldoPendiente
+        
+        # Si el saldo es 0 o negativo, marcar como pagado
+        if nuevo_saldo <= 0.01:
+            ws_facturas.update_cell(row, 12, 'TRUE')  # Pagado
+            ws_facturas.update_cell(row, 13, datetime.now().strftime('%Y-%m-%d'))  # FechaPago
+            ws_facturas.update_cell(row, 19, 'Pagado')  # Estado
+        else:
+            ws_facturas.update_cell(row, 19, 'Abono Parcial')  # Estado
+        
+        return jsonify({
+            'success': True,
+            'abono': {
+                'id': abono_id,
+                'monto': monto,
+                'totalAbonado': nuevo_total_abonado,
+                'saldoPendiente': max(0, nuevo_saldo),
+                'pagadoCompleto': nuevo_saldo <= 0.01
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/abonos/<abono_id>', methods=['DELETE'])
+def delete_abono(abono_id):
+    """Elimina un abono y recalcula el saldo de la factura"""
+    try:
+        sheet = get_sheet()
+        ws_abonos = sheet.worksheet('Abonos')
+        
+        # Buscar el abono
+        cell = ws_abonos.find(abono_id)
+        if not cell:
+            return jsonify({'success': False, 'error': 'Abono no encontrado'}), 404
+        
+        row = cell.row
+        factura_id = ws_abonos.cell(row, 2).value  # FacturaID
+        monto_abono = parse_number(ws_abonos.cell(row, 5).value)  # Monto
+        
+        # Eliminar el abono
+        ws_abonos.delete_rows(row)
+        
+        # Recalcular totales de la factura
+        ws_facturas = sheet.worksheet('Facturas')
+        cell_factura = ws_facturas.find(factura_id)
+        if cell_factura:
+            row_factura = cell_factura.row
+            monto_cobrar = parse_number(ws_facturas.cell(row_factura, 10).value)
+            total_abonado_actual = parse_number(ws_facturas.cell(row_factura, 20).value)
+            
+            nuevo_total_abonado = max(0, total_abonado_actual - monto_abono)
+            nuevo_saldo = monto_cobrar - nuevo_total_abonado
+            
+            ws_facturas.update_cell(row_factura, 20, nuevo_total_abonado)
+            ws_facturas.update_cell(row_factura, 21, nuevo_saldo)
+            
+            # Actualizar estado
+            if nuevo_total_abonado > 0:
+                ws_facturas.update_cell(row_factura, 19, 'Abono Parcial')
+                ws_facturas.update_cell(row_factura, 12, 'FALSE')
+            else:
+                ws_facturas.update_cell(row_factura, 19, 'Pendiente')
+                ws_facturas.update_cell(row_factura, 12, 'FALSE')
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/facturas/<factura_id>/abonos', methods=['GET'])
+def get_abonos_factura(factura_id):
+    """Obtiene el historial de abonos de una factura específica"""
+    try:
+        sheet = get_sheet()
+        ws_abonos = get_or_create_worksheet(sheet, 'Abonos', HEADERS_ABONOS)
+        
+        try:
+            records = ws_abonos.get_all_records()
+        except:
+            records = []
+        
+        abonos = []
+        total_abonado = 0
+        for r in records:
+            if str(r.get('FacturaID', '')) == factura_id:
+                monto = parse_number(r.get('Monto', 0))
+                total_abonado += monto
+                abonos.append({
+                    'id': str(r.get('ID', '')),
+                    'fecha': r.get('Fecha', ''),
+                    'monto': monto,
+                    'metodoPago': r.get('MetodoPago', ''),
+                    'referencia': r.get('Referencia', ''),
+                    'notas': r.get('Notas', '')
+                })
+        
+        # Ordenar por fecha descendente
+        abonos.sort(key=lambda x: x['fecha'], reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'data': abonos,
+            'totalAbonado': total_abonado
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# =====================
+# REPORTE ANTIGÜEDAD DE CARTERA
+# =====================
+@app.route('/api/reportes/antiguedad', methods=['GET'])
+def get_antiguedad_cartera():
+    """Genera reporte de antigüedad de cartera"""
+    try:
+        sheet = get_sheet()
+        ws = get_or_create_worksheet(sheet, 'Facturas', HEADERS_FACTURAS)
+        
+        try:
+            records = ws.get_all_records()
+        except:
+            records = []
+        
+        hoy = datetime.now().date()
+        
+        # Categorías de antigüedad
+        cartera = {
+            'corriente': {'facturas': [], 'total': 0, 'label': '0-30 días'},
+            'dias_31_60': {'facturas': [], 'total': 0, 'label': '31-60 días'},
+            'dias_61_90': {'facturas': [], 'total': 0, 'label': '61-90 días'},
+            'dias_90_mas': {'facturas': [], 'total': 0, 'label': '+90 días'}
+        }
+        
+        total_cartera = 0
+        facturas_pendientes = 0
+        
+        for r in records:
+            # Solo facturas pendientes (no pagadas, no NC)
+            estado = r.get('Estado', '')
+            pagado = r.get('Pagado', 'FALSE')
+            tipo_doc = r.get('TipoDocumento', 'FAC')
+            
+            if pagado == 'TRUE' or estado == 'Pagado' or estado == 'Compensado' or tipo_doc == 'NC':
+                continue
+            
+            # Calcular saldo pendiente
+            monto_cobrar = parse_number(r.get('MontoCobrar', 0))
+            total_abonado = parse_number(r.get('TotalAbonado', 0))
+            saldo = monto_cobrar - total_abonado
+            
+            if saldo <= 0:
+                continue
+            
+            # Calcular días de antigüedad
+            fecha_venc_str = r.get('FechaVencimiento', '')
+            if fecha_venc_str:
+                try:
+                    fecha_venc = datetime.strptime(fecha_venc_str, '%Y-%m-%d').date()
+                    dias_vencido = (hoy - fecha_venc).days
+                except:
+                    dias_vencido = 0
+            else:
+                dias_vencido = 0
+            
+            factura_info = {
+                'consecutivo': r.get('Consecutivo', ''),
+                'clienteNombre': r.get('ClienteNombre', ''),
+                'fecha': r.get('Fecha', ''),
+                'fechaVencimiento': fecha_venc_str,
+                'montoCobrar': monto_cobrar,
+                'totalAbonado': total_abonado,
+                'saldoPendiente': saldo,
+                'diasVencido': max(0, dias_vencido)
+            }
+            
+            total_cartera += saldo
+            facturas_pendientes += 1
+            
+            # Clasificar por antigüedad
+            if dias_vencido <= 30:
+                cartera['corriente']['facturas'].append(factura_info)
+                cartera['corriente']['total'] += saldo
+            elif dias_vencido <= 60:
+                cartera['dias_31_60']['facturas'].append(factura_info)
+                cartera['dias_31_60']['total'] += saldo
+            elif dias_vencido <= 90:
+                cartera['dias_61_90']['facturas'].append(factura_info)
+                cartera['dias_61_90']['total'] += saldo
+            else:
+                cartera['dias_90_mas']['facturas'].append(factura_info)
+                cartera['dias_90_mas']['total'] += saldo
+        
+        # Calcular porcentajes
+        for key in cartera:
+            if total_cartera > 0:
+                cartera[key]['porcentaje'] = round((cartera[key]['total'] / total_cartera) * 100, 2)
+            else:
+                cartera[key]['porcentaje'] = 0
+            cartera[key]['cantidad'] = len(cartera[key]['facturas'])
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'cartera': cartera,
+                'resumen': {
+                    'totalCartera': total_cartera,
+                    'facturasPendientes': facturas_pendientes,
+                    'fechaReporte': hoy.strftime('%Y-%m-%d')
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/reportes/antiguedad/excel', methods=['GET'])
+def export_antiguedad_excel():
+    """Exporta reporte de antigüedad a Excel"""
+    try:
+        # Obtener datos
+        sheet = get_sheet()
+        ws = get_or_create_worksheet(sheet, 'Facturas', HEADERS_FACTURAS)
+        
+        try:
+            records = ws.get_all_records()
+        except:
+            records = []
+        
+        hoy = datetime.now().date()
+        
+        # Crear workbook
+        wb = Workbook()
+        ws_excel = wb.active
+        ws_excel.title = "Antigüedad de Cartera"
+        
+        # Estilos
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
+        corriente_fill = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
+        dias_31_fill = PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid")
+        dias_61_fill = PatternFill(start_color="FED7AA", end_color="FED7AA", fill_type="solid")
+        dias_90_fill = PatternFill(start_color="FECACA", end_color="FECACA", fill_type="solid")
+        border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # Título
+        ws_excel['A1'] = "REPORTE DE ANTIGÜEDAD DE CARTERA"
+        ws_excel['A1'].font = Font(bold=True, size=14)
+        ws_excel['A2'] = f"Fecha: {hoy.strftime('%d/%m/%Y')}"
+        
+        # Headers
+        headers = ['Consecutivo', 'Cliente', 'Fecha', 'Vencimiento', 'Monto', 'Abonado', 'Saldo', 'Días Vencido', 'Categoría']
+        for col, header in enumerate(headers, 1):
+            cell = ws_excel.cell(row=4, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = border
+            cell.alignment = Alignment(horizontal='center')
+        
+        # Datos
+        row_num = 5
+        for r in records:
+            estado = r.get('Estado', '')
+            pagado = r.get('Pagado', 'FALSE')
+            tipo_doc = r.get('TipoDocumento', 'FAC')
+            
+            if pagado == 'TRUE' or estado == 'Pagado' or estado == 'Compensado' or tipo_doc == 'NC':
+                continue
+            
+            monto_cobrar = parse_number(r.get('MontoCobrar', 0))
+            total_abonado = parse_number(r.get('TotalAbonado', 0))
+            saldo = monto_cobrar - total_abonado
+            
+            if saldo <= 0:
+                continue
+            
+            fecha_venc_str = r.get('FechaVencimiento', '')
+            dias_vencido = 0
+            if fecha_venc_str:
+                try:
+                    fecha_venc = datetime.strptime(fecha_venc_str, '%Y-%m-%d').date()
+                    dias_vencido = max(0, (hoy - fecha_venc).days)
+                except:
+                    pass
+            
+            # Determinar categoría
+            if dias_vencido <= 30:
+                categoria = '0-30 días'
+                fill = corriente_fill
+            elif dias_vencido <= 60:
+                categoria = '31-60 días'
+                fill = dias_31_fill
+            elif dias_vencido <= 90:
+                categoria = '61-90 días'
+                fill = dias_61_fill
+            else:
+                categoria = '+90 días'
+                fill = dias_90_fill
+            
+            data_row = [
+                r.get('Consecutivo', ''),
+                r.get('ClienteNombre', ''),
+                r.get('Fecha', ''),
+                fecha_venc_str,
+                monto_cobrar,
+                total_abonado,
+                saldo,
+                dias_vencido,
+                categoria
+            ]
+            
+            for col, value in enumerate(data_row, 1):
+                cell = ws_excel.cell(row=row_num, column=col, value=value)
+                cell.border = border
+                if col == 9:  # Columna categoría
+                    cell.fill = fill
+                if col in [5, 6, 7]:  # Columnas monetarias
+                    cell.number_format = '#,##0.00'
+            
+            row_num += 1
+        
+        # Ajustar anchos
+        column_widths = [18, 30, 12, 12, 15, 15, 15, 12, 12]
+        for i, width in enumerate(column_widths, 1):
+            ws_excel.column_dimensions[get_column_letter(i)].width = width
+        
+        # Guardar
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        response = make_response(output.getvalue())
+        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        response.headers['Content-Disposition'] = f'attachment; filename=antiguedad_cartera_{hoy.strftime("%Y%m%d")}.xlsx'
+        
+        return response
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/reportes/antiguedad/pdf', methods=['GET'])
+def export_antiguedad_pdf():
+    """Exporta reporte de antigüedad a PDF"""
+    try:
+        sheet = get_sheet()
+        ws = get_or_create_worksheet(sheet, 'Facturas', HEADERS_FACTURAS)
+        
+        try:
+            records = ws.get_all_records()
+        except:
+            records = []
+        
+        hoy = datetime.now().date()
+        
+        # Crear PDF
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), 
+                               leftMargin=0.5*inch, rightMargin=0.5*inch,
+                               topMargin=0.5*inch, bottomMargin=0.5*inch)
+        
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Título
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            alignment=TA_CENTER,
+            spaceAfter=20
+        )
+        elements.append(Paragraph("REPORTE DE ANTIGÜEDAD DE CARTERA", title_style))
+        elements.append(Paragraph(f"Fecha: {hoy.strftime('%d/%m/%Y')}", styles['Normal']))
+        elements.append(Spacer(1, 20))
+        
+        # Preparar datos para tabla
+        table_data = [['Consecutivo', 'Cliente', 'Vencimiento', 'Monto', 'Abonado', 'Saldo', 'Días', 'Categoría']]
+        
+        totales = {'corriente': 0, 'dias_31': 0, 'dias_61': 0, 'dias_90': 0}
+        
+        for r in records:
+            estado = r.get('Estado', '')
+            pagado = r.get('Pagado', 'FALSE')
+            tipo_doc = r.get('TipoDocumento', 'FAC')
+            
+            if pagado == 'TRUE' or estado == 'Pagado' or estado == 'Compensado' or tipo_doc == 'NC':
+                continue
+            
+            monto_cobrar = parse_number(r.get('MontoCobrar', 0))
+            total_abonado = parse_number(r.get('TotalAbonado', 0))
+            saldo = monto_cobrar - total_abonado
+            
+            if saldo <= 0:
+                continue
+            
+            fecha_venc_str = r.get('FechaVencimiento', '')
+            dias_vencido = 0
+            if fecha_venc_str:
+                try:
+                    fecha_venc = datetime.strptime(fecha_venc_str, '%Y-%m-%d').date()
+                    dias_vencido = max(0, (hoy - fecha_venc).days)
+                except:
+                    pass
+            
+            if dias_vencido <= 30:
+                categoria = '0-30'
+                totales['corriente'] += saldo
+            elif dias_vencido <= 60:
+                categoria = '31-60'
+                totales['dias_31'] += saldo
+            elif dias_vencido <= 90:
+                categoria = '61-90'
+                totales['dias_61'] += saldo
+            else:
+                categoria = '+90'
+                totales['dias_90'] += saldo
+            
+            table_data.append([
+                r.get('Consecutivo', '')[:20],
+                r.get('ClienteNombre', '')[:25],
+                fecha_venc_str,
+                f"₡{monto_cobrar:,.0f}",
+                f"₡{total_abonado:,.0f}",
+                f"₡{saldo:,.0f}",
+                str(dias_vencido),
+                categoria
+            ])
+        
+        # Crear tabla
+        if len(table_data) > 1:
+            table = Table(table_data, colWidths=[1.3*inch, 1.8*inch, 0.9*inch, 0.9*inch, 0.9*inch, 0.9*inch, 0.5*inch, 0.6*inch])
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4F46E5')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F3F4F6')])
+            ]))
+            elements.append(table)
+        
+        # Resumen
+        elements.append(Spacer(1, 20))
+        total_cartera = sum(totales.values())
+        resumen_data = [
+            ['RESUMEN', 'Monto', '%'],
+            ['0-30 días', f"₡{totales['corriente']:,.0f}", f"{(totales['corriente']/total_cartera*100) if total_cartera > 0 else 0:.1f}%"],
+            ['31-60 días', f"₡{totales['dias_31']:,.0f}", f"{(totales['dias_31']/total_cartera*100) if total_cartera > 0 else 0:.1f}%"],
+            ['61-90 días', f"₡{totales['dias_61']:,.0f}", f"{(totales['dias_61']/total_cartera*100) if total_cartera > 0 else 0:.1f}%"],
+            ['+90 días', f"₡{totales['dias_90']:,.0f}", f"{(totales['dias_90']/total_cartera*100) if total_cartera > 0 else 0:.1f}%"],
+            ['TOTAL', f"₡{total_cartera:,.0f}", '100%']
+        ]
+        
+        resumen_table = Table(resumen_data, colWidths=[1.5*inch, 1.5*inch, 1*inch])
+        resumen_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4F46E5')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#E5E7EB')),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
+        ]))
+        elements.append(resumen_table)
+        
+        doc.build(elements)
+        buffer.seek(0)
+        
+        response = make_response(buffer.getvalue())
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = f'attachment; filename=antiguedad_cartera_{hoy.strftime("%Y%m%d")}.pdf'
+        
+        return response
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# =====================
+# DASHBOARD STATS
+# =====================
+@app.route('/api/dashboard/stats', methods=['GET'])
+def get_dashboard_stats():
+    """Obtiene estadísticas para el dashboard"""
+    try:
+        sheet = get_sheet()
+        ws = get_or_create_worksheet(sheet, 'Facturas', HEADERS_FACTURAS)
+        
+        try:
+            records = ws.get_all_records()
+        except:
+            records = []
+        
+        hoy = datetime.now().date()
+        
+        stats = {
+            'totalPorCobrar': 0,
+            'totalCobrado': 0,
+            'facturasPendientes': 0,
+            'facturasPagadas': 0,
+            'facturasVencidas': 0,
+            'proximasVencer': 0,  # Próximos 7 días
+            'clientesConDeuda': set(),
+            'porCategoria': {
+                'corriente': 0,
+                'dias_31_60': 0,
+                'dias_61_90': 0,
+                'dias_90_mas': 0
+            }
+        }
+        
+        for r in records:
+            tipo_doc = r.get('TipoDocumento', 'FAC')
+            if tipo_doc == 'NC':
+                continue
+                
+            monto_cobrar = parse_number(r.get('MontoCobrar', 0))
+            total_abonado = parse_number(r.get('TotalAbonado', 0))
+            saldo = monto_cobrar - total_abonado
+            
+            estado = r.get('Estado', '')
+            pagado = r.get('Pagado', 'FALSE')
+            
+            if pagado == 'TRUE' or estado == 'Pagado' or estado == 'Compensado':
+                stats['totalCobrado'] += monto_cobrar
+                stats['facturasPagadas'] += 1
+            else:
+                if saldo > 0:
+                    stats['totalPorCobrar'] += saldo
+                    stats['facturasPendientes'] += 1
+                    stats['clientesConDeuda'].add(r.get('ClienteNombre', ''))
+                    
+                    # Verificar vencimiento
+                    fecha_venc_str = r.get('FechaVencimiento', '')
+                    if fecha_venc_str:
+                        try:
+                            fecha_venc = datetime.strptime(fecha_venc_str, '%Y-%m-%d').date()
+                            dias_para_vencer = (fecha_venc - hoy).days
+                            dias_vencido = (hoy - fecha_venc).days
+                            
+                            if dias_para_vencer < 0:
+                                stats['facturasVencidas'] += 1
+                            elif dias_para_vencer <= 7:
+                                stats['proximasVencer'] += 1
+                            
+                            # Clasificar
+                            if dias_vencido <= 30:
+                                stats['porCategoria']['corriente'] += saldo
+                            elif dias_vencido <= 60:
+                                stats['porCategoria']['dias_31_60'] += saldo
+                            elif dias_vencido <= 90:
+                                stats['porCategoria']['dias_61_90'] += saldo
+                            else:
+                                stats['porCategoria']['dias_90_mas'] += saldo
+                        except:
+                            stats['porCategoria']['corriente'] += saldo
+        
+        stats['clientesConDeuda'] = len(stats['clientesConDeuda'])
+        
+        return jsonify({'success': True, 'data': stats})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
