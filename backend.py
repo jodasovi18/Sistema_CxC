@@ -223,6 +223,13 @@ def get_sheet(sheet_id=None):
 def get_or_create_worksheet(sheet, name, headers):
     try:
         ws = sheet.worksheet(name)
+        # Verificar si la hoja tiene encabezados, si no, agregarlos
+        try:
+            first_row = ws.row_values(1)
+            if not first_row or len(first_row) == 0:
+                ws.append_row(headers)
+        except:
+            ws.append_row(headers)
     except gspread.WorksheetNotFound:
         ws = sheet.add_worksheet(title=name, rows=1000, cols=len(headers))
         ws.append_row(headers)
@@ -398,7 +405,13 @@ def get_clientes():
     try:
         sheet = get_sheet()
         ws = get_or_create_worksheet(sheet, 'Clientes', HEADERS_CLIENTES)
-        records = ws.get_all_records()
+        
+        try:
+            records = ws.get_all_records()
+        except Exception as e:
+            # Si falla get_all_records (hoja vacía), retornar lista vacía
+            print(f"Advertencia al leer clientes: {e}")
+            records = []
         
         # Convertir a formato esperado por el frontend
         clientes = []
@@ -407,7 +420,7 @@ def get_clientes():
                 'id': str(r.get('ID', '')),
                 'identificacion': str(r.get('Identificacion', '')),
                 'nombre': r.get('Nombre', ''),
-                'diasVencimiento': int(r.get('DiasCredito', 8)),
+                'diasVencimiento': int(r.get('DiasCredito', 8) or 8),
                 'activo': r.get('Activo', 'TRUE') == 'TRUE'
             })
         
@@ -486,7 +499,13 @@ def get_facturas():
     try:
         sheet = get_sheet()
         ws = get_or_create_worksheet(sheet, 'Facturas', HEADERS_FACTURAS)
-        records = ws.get_all_records()
+        
+        try:
+            records = ws.get_all_records()
+        except Exception as e:
+            # Si falla get_all_records (hoja vacía o sin datos), retornar lista vacía
+            print(f"Advertencia al leer facturas: {e}")
+            records = []
         
         facturas = []
         for r in records:
