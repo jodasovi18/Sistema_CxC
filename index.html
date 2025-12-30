@@ -1819,10 +1819,39 @@
 
             const facturas = state.importPreview.map(r => {
                 const dias = r.cliente.diasVencimiento || 8;
-                const fechaVenc = new Date(new Date(r.fecha).getTime() + dias * 86400000).toISOString();
+                
+                // Parsear fecha correctamente (puede venir en varios formatos)
+                let fechaBase;
+                if (r.fecha) {
+                    // Si viene en formato dd-mm-yyyy o dd/mm/yyyy
+                    if (r.fecha.includes('-') || r.fecha.includes('/')) {
+                        const sep = r.fecha.includes('-') ? '-' : '/';
+                        const parts = r.fecha.split(sep);
+                        if (parts.length === 3) {
+                            // Detectar si es dd-mm-yyyy o yyyy-mm-dd
+                            if (parts[0].length === 4) {
+                                // yyyy-mm-dd
+                                fechaBase = new Date(parts[0], parts[1] - 1, parts[2]);
+                            } else {
+                                // dd-mm-yyyy
+                                fechaBase = new Date(parts[2], parts[1] - 1, parts[0]);
+                            }
+                        }
+                    } else {
+                        fechaBase = new Date(r.fecha);
+                    }
+                }
+                
+                // Si no se pudo parsear, usar fecha actual
+                if (!fechaBase || isNaN(fechaBase.getTime())) {
+                    fechaBase = new Date();
+                }
+                
+                const fechaVenc = new Date(fechaBase.getTime() + dias * 86400000);
+                
                 return {
                     consecutivo: r.cons,
-                    fecha: r.fecha,
+                    fecha: fechaBase.toISOString().split('T')[0],
                     clienteId: r.cliente.id,
                     clienteNombre: r.cliente.nombre,
                     cedulaCliente: r.cliente.identificacion,
@@ -1831,7 +1860,7 @@
                     otrosRebajos: 0,
                     tipoProducto: '',
                     ordenCompra: '',
-                    fechaVencimiento: fechaVenc
+                    fechaVencimiento: fechaVenc.toISOString().split('T')[0]
                 };
             });
 
