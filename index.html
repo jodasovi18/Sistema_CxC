@@ -2461,7 +2461,7 @@
             
             tbody.innerHTML = facturas.map(f => `
                 <tr>
-                    <td><strong>${f.consecutivo}</strong></td>
+                    <td><strong>${f.consecutivo || f.id}</strong></td>
                     <td>${f.clienteNombre}</td>
                     <td>${fmtDate(f.fechaVencimiento)}</td>
                     <td>₡${fmt(f.montoCobrar)}</td>
@@ -2469,16 +2469,30 @@
                     <td><strong style="color:var(--accent-orange)">₡${fmt(f.saldoPendiente)}</strong></td>
                     <td><span class="badge ${f.diasVencido > 60 ? 'badge-danger' : f.diasVencido > 30 ? 'badge-warning' : 'badge-info'}">${f.diasVencido}d</span></td>
                     <td><span class="badge ${f.catClass}">${f.categoria}</span></td>
-                    <td><button class="btn btn-sm btn-info" onclick="verFacturaDesdeAntiguedad('${f.consecutivo}')"><i data-lucide="eye" style="width:14px;height:14px"></i></button></td>
+                    <td><button class="btn btn-sm btn-info" onclick="verFacturaDesdeAntiguedad('${f.id}')"><i data-lucide="eye" style="width:14px;height:14px"></i></button></td>
                 </tr>
             `).join('');
             lucide.createIcons();
         }
 
-        function verFacturaDesdeAntiguedad(consecutivo) {
-            showSection('facturas');
-            document.getElementById('buscar-factura').value = consecutivo;
-            renderFacturas();
+        async function verFacturaDesdeAntiguedad(facturaId) {
+            // Buscar la factura directamente por ID
+            showLoading();
+            try {
+                const res = await api(`/factura/${facturaId}`);
+                if (res.success && res.factura) {
+                    // Ir a facturas y mostrar la factura
+                    showSection('facturas');
+                    document.getElementById('buscar-factura').value = res.factura.Consecutivo || facturaId;
+                    renderFacturas();
+                    toast(`Factura ${res.factura.Consecutivo || facturaId} encontrada`);
+                } else {
+                    toast('Factura no encontrada', 'error');
+                }
+            } catch (e) {
+                toast('Error al buscar factura', 'error');
+            }
+            hideLoading();
         }
 
         async function exportAntiguedadExcel() {

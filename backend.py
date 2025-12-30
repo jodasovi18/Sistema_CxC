@@ -678,6 +678,32 @@ def add_facturas_batch():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/factura/<factura_id>', methods=['GET'])
+def get_factura_by_id(factura_id):
+    """Obtiene una factura por su ID"""
+    try:
+        sheet = get_sheet()
+        ws = get_or_create_worksheet(sheet, 'Facturas', HEADERS_FACTURAS)
+        
+        try:
+            records = ws.get_all_records()
+        except:
+            records = []
+        
+        # Buscar por ID
+        for r in records:
+            if str(r.get('ID', '')) == str(factura_id):
+                return jsonify({'success': True, 'factura': r})
+        
+        # Si no se encuentra por ID, intentar por Consecutivo
+        for r in records:
+            if str(r.get('Consecutivo', '')) == str(factura_id):
+                return jsonify({'success': True, 'factura': r})
+        
+        return jsonify({'success': False, 'error': 'Factura no encontrada'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/facturas/<factura_id>', methods=['PUT'])
 def update_factura(factura_id):
     try:
@@ -2792,11 +2818,22 @@ def get_antiguedad_cartera():
         total_cartera = 0
         facturas_pendientes = 0
         
+        # Set para evitar duplicados por ID
+        ids_procesados = set()
+        
         for r in records:
+            # Obtener ID único de la factura
+            factura_id = str(r.get('ID', ''))
+            
+            # Evitar duplicados - usar ID como identificador único
+            if factura_id in ids_procesados or not factura_id:
+                continue
+            ids_procesados.add(factura_id)
+            
             # Solo facturas pendientes (no pagadas, no NC)
-            estado = r.get('Estado', '')
-            pagado = r.get('Pagado', 'FALSE')
-            tipo_doc = r.get('TipoDocumento', 'FAC')
+            estado = str(r.get('Estado', ''))
+            pagado = str(r.get('Pagado', 'FALSE')).upper()
+            tipo_doc = str(r.get('TipoDocumento', 'FAC'))
             
             if pagado == 'TRUE' or estado == 'Pagado' or estado == 'Compensado' or tipo_doc == 'NC':
                 continue
@@ -2809,21 +2846,24 @@ def get_antiguedad_cartera():
             if saldo <= 0:
                 continue
             
-            # Calcular días de antigüedad
-            fecha_venc_str = r.get('FechaVencimiento', '')
+            # Calcular días de antigüedad desde fecha de vencimiento
+            fecha_venc_str = str(r.get('FechaVencimiento', '')).split('T')[0] if r.get('FechaVencimiento') else ''
+            dias_vencido = 0
+            
             if fecha_venc_str:
                 try:
                     fecha_venc = datetime.strptime(fecha_venc_str, '%Y-%m-%d').date()
                     dias_vencido = (hoy - fecha_venc).days
-                except:
+                except Exception as e:
+                    print(f"Error parseando fecha {fecha_venc_str}: {e}")
                     dias_vencido = 0
-            else:
-                dias_vencido = 0
             
             factura_info = {
-                'consecutivo': r.get('Consecutivo', ''),
+                'id': factura_id,
+                'consecutivo': str(r.get('Consecutivo', '')),
                 'clienteNombre': r.get('ClienteNombre', ''),
-                'fecha': r.get('Fecha', ''),
+                'clienteId': str(r.get('ClienteID', '')),
+                'fecha': str(r.get('Fecha', ''))[:10] if r.get('Fecha') else '',
                 'fechaVencimiento': fecha_venc_str,
                 'montoCobrar': monto_cobrar,
                 'totalAbonado': total_abonado,
@@ -2834,7 +2874,7 @@ def get_antiguedad_cartera():
             total_cartera += saldo
             facturas_pendientes += 1
             
-            # Clasificar por antigüedad
+            # Clasificar por antigüedad (días desde vencimiento)
             if dias_vencido <= 30:
                 cartera['corriente']['facturas'].append(factura_info)
                 cartera['corriente']['total'] += saldo
@@ -2855,6 +2895,8 @@ def get_antiguedad_cartera():
             else:
                 cartera[key]['porcentaje'] = 0
             cartera[key]['cantidad'] = len(cartera[key]['facturas'])
+            # Ordenar facturas por días vencido (más vencidas primero)
+            cartera[key]['facturas'].sort(key=lambda x: x['diasVencido'], reverse=True)
         
         return jsonify({
             'success': True,
@@ -2868,6 +2910,7 @@ def get_antiguedad_cartera():
             }
         })
     except Exception as e:
+        print(f"Error en get_antiguedad_cartera: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reportes/antiguedad/excel', methods=['GET'])
