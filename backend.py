@@ -3,7 +3,7 @@ Backend Control CxC v4 - Multi-cliente
 Conexión con Google Sheets + Generación de Reportes
 
 Instrucciones:
-1. pip install flask flask-cors gspread google-auth openpyxl reportlab
+1. pip install flask flask-cors gspread google-auth openpyxl reportlab bcrypt PyJWT
 2. Colocar credentials.json en la misma carpeta
 3. python backend.py
 4. Abrir el HTML en el navegador
@@ -17,6 +17,13 @@ from datetime import datetime, timedelta
 import os
 import io
 import json
+import secrets
+import hashlib
+from functools import wraps
+
+# Para autenticación
+import jwt
+import bcrypt
 
 # Para reportes Excel
 from openpyxl import Workbook
@@ -32,7 +39,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, supports_credentials=True)
 
 # =====================
 # Configuración
@@ -43,12 +50,493 @@ NEGOCIOS_FILE = "negocios.json"
 # Para despliegue en nube: credenciales desde variable de entorno
 GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_CREDENTIALS_JSON')
 
+# Clave secreta para JWT (generar una única y guardar en variable de entorno)
+JWT_SECRET = os.environ.get('JWT_SECRET', secrets.token_hex(32))
+JWT_EXPIRATION_HOURS = int(os.environ.get('JWT_EXPIRATION_HOURS', '8'))
+
 # Negocio activo (se cambia dinámicamente)
 current_sheet_id = None
 
 # Sheet maestro para guardar la lista de negocios (persistente)
 # Este Sheet ID debe configurarse como variable de entorno MASTER_SHEET_ID
 MASTER_SHEET_ID = os.environ.get('MASTER_SHEET_ID', '')
+
+# Headers para la hoja de Usuarios
+HEADERS_USUARIOS = ['ID', 'Usuario', 'PasswordHash', 'Nombre', 'Email', 'Rol', 'Activo', 'UltimoAcceso', 'FechaCreacion']
+
+# =====================
+# AUTENTICACIÓN
+# =====================
+def hash_password(password):
+    """Hashea una contraseña con bcrypt"""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password, hashed):
+    """Verifica una contraseña contra su hash"""
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    except:
+        return False
+
+def generate_token(user_data):
+    """Genera un JWT token"""
+    payload = {
+        'user_id': user_data['id'],
+        'usuario': user_data['usuario'],
+        'nombre': user_data['nombre'],
+        'rol': user_data.get('rol', 'usuario'),
+        'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS),
+        'iat': datetime.utcnow()
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm='HS256')
+
+def verify_token(token):
+    """Verifica y decodifica un JWT token"""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+        return payload
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+def auth_required(f):
+    """Decorator para proteger endpoints que requieren autenticación"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        
+        # Buscar token en header Authorization
+        auth_header = request.headers.get('Authorization')
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+        
+        # También buscar en cookies
+        if not token:
+            token = request.cookies.get('auth_token')
+        
+        if not token:
+            return jsonify({'success': False, 'error': 'Token de autenticación requerido'}), 401
+        
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Token inválido o expirado'}), 401
+        
+        # Agregar datos del usuario al request
+        request.user = payload
+        return f(*args, **kwargs)
+    
+    return decorated
+
+def admin_required(f):
+    """Decorator para endpoints que requieren rol de administrador"""
+    @wraps(f)
+    @auth_required
+    def decorated(*args, **kwargs):
+        if request.user.get('rol') != 'admin':
+            return jsonify({'success': False, 'error': 'Se requieren permisos de administrador'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+def get_usuarios_worksheet():
+    """Obtiene la hoja de usuarios del Master Sheet"""
+    master = get_master_sheet()
+    if not master:
+        return None
+    
+    try:
+        ws = master.worksheet('Usuarios')
+    except gspread.WorksheetNotFound:
+        ws = master.add_worksheet(title='Usuarios', rows=100, cols=len(HEADERS_USUARIOS))
+        ws.append_row(HEADERS_USUARIOS)
+    return ws
+
+# =====================
+# ENDPOINTS DE AUTENTICACIÓN
+# =====================
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """Inicia sesión y retorna un JWT token"""
+    try:
+        data = request.json
+        usuario = data.get('usuario', '').strip().lower()
+        password = data.get('password', '')
+        
+        if not usuario or not password:
+            return jsonify({'success': False, 'error': 'Usuario y contraseña requeridos'}), 400
+        
+        ws = get_usuarios_worksheet()
+        if not ws:
+            # Si no hay Master Sheet, crear usuario admin por defecto
+            if usuario == 'admin' and password == 'admin':
+                token = generate_token({
+                    'id': '1',
+                    'usuario': 'admin',
+                    'nombre': 'Administrador',
+                    'rol': 'admin'
+                })
+                response = make_response(jsonify({
+                    'success': True,
+                    'token': token,
+                    'user': {
+                        'id': '1',
+                        'usuario': 'admin',
+                        'nombre': 'Administrador',
+                        'rol': 'admin'
+                    },
+                    'mensaje': '⚠️ Usando credenciales por defecto. Configure MASTER_SHEET_ID para persistencia.'
+                }))
+                response.set_cookie('auth_token', token, httponly=True, secure=True, samesite='None', max_age=JWT_EXPIRATION_HOURS*3600)
+                return response
+            else:
+                return jsonify({'success': False, 'error': 'Credenciales inválidas'}), 401
+        
+        # Buscar usuario
+        try:
+            usuarios = ws.get_all_records()
+        except:
+            usuarios = []
+        
+        user = None
+        for u in usuarios:
+            if u.get('Usuario', '').lower() == usuario and u.get('Activo', 'TRUE') == 'TRUE':
+                user = u
+                break
+        
+        if not user:
+            return jsonify({'success': False, 'error': 'Usuario no encontrado o inactivo'}), 401
+        
+        # Verificar contraseña
+        if not verify_password(password, user.get('PasswordHash', '')):
+            return jsonify({'success': False, 'error': 'Contraseña incorrecta'}), 401
+        
+        # Actualizar último acceso
+        try:
+            cell = ws.find(user.get('Usuario'))
+            if cell:
+                ws.update_cell(cell.row, 8, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        except:
+            pass
+        
+        # Generar token
+        user_data = {
+            'id': str(user.get('ID', '')),
+            'usuario': user.get('Usuario', ''),
+            'nombre': user.get('Nombre', ''),
+            'rol': user.get('Rol', 'usuario')
+        }
+        token = generate_token(user_data)
+        
+        response = make_response(jsonify({
+            'success': True,
+            'token': token,
+            'user': user_data
+        }))
+        response.set_cookie('auth_token', token, httponly=True, secure=True, samesite='None', max_age=JWT_EXPIRATION_HOURS*3600)
+        return response
+        
+    except Exception as e:
+        print(f"Error en login: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    """Cierra la sesión"""
+    response = make_response(jsonify({'success': True}))
+    response.delete_cookie('auth_token')
+    return response
+
+@app.route('/api/auth/verify', methods=['GET'])
+def verify_auth():
+    """Verifica si el token actual es válido"""
+    token = None
+    
+    auth_header = request.headers.get('Authorization')
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+    
+    if not token:
+        token = request.cookies.get('auth_token')
+    
+    if not token:
+        return jsonify({'success': False, 'authenticated': False})
+    
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'authenticated': False})
+    
+    return jsonify({
+        'success': True,
+        'authenticated': True,
+        'user': {
+            'id': payload.get('user_id'),
+            'usuario': payload.get('usuario'),
+            'nombre': payload.get('nombre'),
+            'rol': payload.get('rol')
+        }
+    })
+
+@app.route('/api/auth/cambiar-password', methods=['POST'])
+@auth_required
+def cambiar_password():
+    """Cambia la contraseña del usuario actual"""
+    try:
+        data = request.json
+        password_actual = data.get('passwordActual', '')
+        password_nueva = data.get('passwordNueva', '')
+        
+        if not password_actual or not password_nueva:
+            return jsonify({'success': False, 'error': 'Ambas contraseñas son requeridas'}), 400
+        
+        if len(password_nueva) < 6:
+            return jsonify({'success': False, 'error': 'La nueva contraseña debe tener al menos 6 caracteres'}), 400
+        
+        ws = get_usuarios_worksheet()
+        if not ws:
+            return jsonify({'success': False, 'error': 'Sistema de usuarios no configurado'}), 500
+        
+        usuarios = ws.get_all_records()
+        user = None
+        row_num = None
+        
+        for i, u in enumerate(usuarios):
+            if str(u.get('ID', '')) == request.user.get('user_id'):
+                user = u
+                row_num = i + 2  # +2 por header y índice base 0
+                break
+        
+        if not user:
+            return jsonify({'success': False, 'error': 'Usuario no encontrado'}), 404
+        
+        # Verificar contraseña actual
+        if not verify_password(password_actual, user.get('PasswordHash', '')):
+            return jsonify({'success': False, 'error': 'Contraseña actual incorrecta'}), 401
+        
+        # Actualizar contraseña
+        new_hash = hash_password(password_nueva)
+        ws.update_cell(row_num, 3, new_hash)
+        
+        return jsonify({'success': True, 'mensaje': 'Contraseña actualizada correctamente'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# =====================
+# GESTIÓN DE USUARIOS (Solo Admin)
+# =====================
+@app.route('/api/usuarios', methods=['GET'])
+@admin_required
+def get_usuarios():
+    """Lista todos los usuarios"""
+    try:
+        ws = get_usuarios_worksheet()
+        if not ws:
+            return jsonify({'success': True, 'data': []})
+        
+        try:
+            usuarios = ws.get_all_records()
+        except:
+            usuarios = []
+        
+        # No enviar el hash de contraseña
+        usuarios_safe = []
+        for u in usuarios:
+            usuarios_safe.append({
+                'id': str(u.get('ID', '')),
+                'usuario': u.get('Usuario', ''),
+                'nombre': u.get('Nombre', ''),
+                'email': u.get('Email', ''),
+                'rol': u.get('Rol', 'usuario'),
+                'activo': u.get('Activo', 'TRUE') == 'TRUE',
+                'ultimoAcceso': u.get('UltimoAcceso', ''),
+                'fechaCreacion': u.get('FechaCreacion', '')
+            })
+        
+        return jsonify({'success': True, 'data': usuarios_safe})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/usuarios', methods=['POST'])
+@admin_required
+def crear_usuario():
+    """Crea un nuevo usuario"""
+    try:
+        data = request.json
+        usuario = data.get('usuario', '').strip().lower()
+        password = data.get('password', '')
+        nombre = data.get('nombre', '')
+        email = data.get('email', '')
+        rol = data.get('rol', 'usuario')
+        
+        if not usuario or not password or not nombre:
+            return jsonify({'success': False, 'error': 'Usuario, contraseña y nombre son requeridos'}), 400
+        
+        if len(password) < 6:
+            return jsonify({'success': False, 'error': 'La contraseña debe tener al menos 6 caracteres'}), 400
+        
+        if rol not in ['admin', 'usuario', 'lectura']:
+            return jsonify({'success': False, 'error': 'Rol inválido'}), 400
+        
+        ws = get_usuarios_worksheet()
+        if not ws:
+            return jsonify({'success': False, 'error': 'Sistema de usuarios no configurado'}), 500
+        
+        # Verificar que el usuario no exista
+        try:
+            usuarios = ws.get_all_records()
+        except:
+            usuarios = []
+        
+        for u in usuarios:
+            if u.get('Usuario', '').lower() == usuario:
+                return jsonify({'success': False, 'error': 'El usuario ya existe'}), 400
+        
+        # Crear usuario
+        user_id = datetime.now().strftime('%Y%m%d%H%M%S')
+        password_hash = hash_password(password)
+        
+        ws.append_row([
+            user_id,
+            usuario,
+            password_hash,
+            nombre,
+            email,
+            rol,
+            'TRUE',
+            '',
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        ])
+        
+        return jsonify({
+            'success': True,
+            'usuario': {
+                'id': user_id,
+                'usuario': usuario,
+                'nombre': nombre,
+                'rol': rol
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/usuarios/<user_id>', methods=['PUT'])
+@admin_required
+def actualizar_usuario(user_id):
+    """Actualiza un usuario existente"""
+    try:
+        data = request.json
+        
+        ws = get_usuarios_worksheet()
+        if not ws:
+            return jsonify({'success': False, 'error': 'Sistema no configurado'}), 500
+        
+        usuarios = ws.get_all_records()
+        row_num = None
+        
+        for i, u in enumerate(usuarios):
+            if str(u.get('ID', '')) == user_id:
+                row_num = i + 2
+                break
+        
+        if not row_num:
+            return jsonify({'success': False, 'error': 'Usuario no encontrado'}), 404
+        
+        # Actualizar campos
+        if 'nombre' in data:
+            ws.update_cell(row_num, 4, data['nombre'])
+        if 'email' in data:
+            ws.update_cell(row_num, 5, data['email'])
+        if 'rol' in data and data['rol'] in ['admin', 'usuario', 'lectura']:
+            ws.update_cell(row_num, 6, data['rol'])
+        if 'activo' in data:
+            ws.update_cell(row_num, 7, 'TRUE' if data['activo'] else 'FALSE')
+        if 'password' in data and len(data['password']) >= 6:
+            ws.update_cell(row_num, 3, hash_password(data['password']))
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/usuarios/<user_id>', methods=['DELETE'])
+@admin_required
+def eliminar_usuario(user_id):
+    """Elimina (desactiva) un usuario"""
+    try:
+        # No permitir eliminar el propio usuario
+        if request.user.get('user_id') == user_id:
+            return jsonify({'success': False, 'error': 'No podés eliminar tu propio usuario'}), 400
+        
+        ws = get_usuarios_worksheet()
+        if not ws:
+            return jsonify({'success': False, 'error': 'Sistema no configurado'}), 500
+        
+        usuarios = ws.get_all_records()
+        row_num = None
+        
+        for i, u in enumerate(usuarios):
+            if str(u.get('ID', '')) == user_id:
+                row_num = i + 2
+                break
+        
+        if not row_num:
+            return jsonify({'success': False, 'error': 'Usuario no encontrado'}), 404
+        
+        # Solo desactivar, no eliminar físicamente
+        ws.update_cell(row_num, 7, 'FALSE')
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/auth/setup', methods=['POST'])
+def setup_admin():
+    """Crea el usuario admin inicial (solo si no existe ningún usuario)"""
+    try:
+        ws = get_usuarios_worksheet()
+        if not ws:
+            return jsonify({'success': False, 'error': 'Configure MASTER_SHEET_ID primero'}), 500
+        
+        try:
+            usuarios = ws.get_all_records()
+        except:
+            usuarios = []
+        
+        if len(usuarios) > 0:
+            return jsonify({'success': False, 'error': 'Ya existe al menos un usuario'}), 400
+        
+        data = request.json
+        password = data.get('password', '')
+        
+        if len(password) < 6:
+            return jsonify({'success': False, 'error': 'La contraseña debe tener al menos 6 caracteres'}), 400
+        
+        # Crear usuario admin
+        user_id = datetime.now().strftime('%Y%m%d%H%M%S')
+        password_hash = hash_password(password)
+        
+        ws.append_row([
+            user_id,
+            'admin',
+            password_hash,
+            'Administrador',
+            '',
+            'admin',
+            'TRUE',
+            '',
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        ])
+        
+        return jsonify({
+            'success': True,
+            'mensaje': 'Usuario admin creado exitosamente',
+            'usuario': 'admin'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 def get_master_sheet():
     """Obtiene conexión al Sheet maestro"""
@@ -259,6 +747,7 @@ def detectar_tipo_documento(consecutivo):
 # NEGOCIOS (Multi-cliente)
 # =====================
 @app.route('/api/negocios', methods=['GET'])
+@auth_required
 def get_negocios():
     """Obtiene la lista de negocios configurados"""
     try:
@@ -271,6 +760,7 @@ def get_negocios():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/negocios/debug', methods=['GET'])
+@auth_required
 def debug_negocios():
     """Endpoint de diagnóstico para verificar configuración de negocios"""
     debug_info = {
@@ -309,6 +799,7 @@ def debug_negocios():
     return jsonify(debug_info)
 
 @app.route('/api/negocios', methods=['POST'])
+@auth_required
 def add_negocio():
     """Agrega un nuevo negocio"""
     try:
@@ -335,6 +826,7 @@ def add_negocio():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/negocios/<negocio_id>', methods=['PUT'])
+@auth_required
 def update_negocio(negocio_id):
     """Actualiza un negocio existente"""
     try:
@@ -354,6 +846,7 @@ def update_negocio(negocio_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/negocios/<negocio_id>', methods=['DELETE'])
+@admin_required
 def delete_negocio(negocio_id):
     """Elimina un negocio"""
     try:
@@ -365,6 +858,7 @@ def delete_negocio(negocio_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/negocios/activar/<negocio_id>', methods=['POST'])
+@auth_required
 def activar_negocio(negocio_id):
     """Activa un negocio (lo hace el actual)"""
     try:
@@ -381,6 +875,7 @@ def activar_negocio(negocio_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/negocios/actual', methods=['GET'])
+@auth_required
 def get_negocio_actual():
     """Obtiene el negocio actualmente activo"""
     global current_sheet_id
@@ -403,6 +898,7 @@ def get_negocio_actual():
 # CLIENTES
 # =====================
 @app.route('/api/clientes', methods=['GET'])
+@auth_required
 def get_clientes():
     try:
         sheet = get_sheet()
@@ -431,6 +927,7 @@ def get_clientes():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/clientes', methods=['POST'])
+@auth_required
 def add_cliente():
     try:
         data = request.json
@@ -453,6 +950,7 @@ def add_cliente():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/clientes/<cliente_id>', methods=['PUT'])
+@auth_required
 def update_cliente(cliente_id):
     try:
         data = request.json
@@ -477,6 +975,7 @@ def update_cliente(cliente_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/clientes/<cliente_id>/toggle', methods=['POST'])
+@auth_required
 def toggle_cliente(cliente_id):
     try:
         sheet = get_sheet()
@@ -497,6 +996,7 @@ def toggle_cliente(cliente_id):
 # FACTURAS
 # =====================
 @app.route('/api/facturas', methods=['GET'])
+@auth_required
 def get_facturas():
     try:
         sheet = get_sheet()
@@ -556,6 +1056,7 @@ def get_facturas():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/facturas', methods=['POST'])
+@auth_required
 def add_factura():
     try:
         data = request.json
@@ -598,6 +1099,7 @@ def add_factura():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/facturas/batch', methods=['POST'])
+@auth_required
 def add_facturas_batch():
     try:
         facturas = request.json.get('facturas', [])
@@ -679,6 +1181,7 @@ def add_facturas_batch():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/factura/<factura_id>', methods=['GET'])
+@auth_required
 def get_factura_by_id(factura_id):
     """Obtiene una factura por su ID"""
     try:
@@ -705,6 +1208,7 @@ def get_factura_by_id(factura_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/facturas/<factura_id>', methods=['PUT'])
+@auth_required
 def update_factura(factura_id):
     try:
         data = request.json
@@ -746,6 +1250,7 @@ def update_factura(factura_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/facturas/<factura_id>/pago', methods=['POST'])
+@auth_required
 def registrar_pago(factura_id):
     try:
         data = request.json
@@ -836,6 +1341,7 @@ def compensar_documentos():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/facturas/pendientes/<cliente_id>', methods=['GET'])
+@auth_required
 def get_facturas_pendientes_cliente(cliente_id):
     """Obtiene facturas pendientes de un cliente para compensar con NC"""
     try:
@@ -1129,6 +1635,7 @@ def crear_pdf_reporte(titulo, subtitulo, headers, datos, col_widths=None, resume
 # REPORTES PDF
 # =====================
 @app.route('/api/reportes/semanal/pdf', methods=['GET'])
+@auth_required
 def reporte_semanal_pdf():
     """Genera reporte semanal en PDF"""
     try:
@@ -1224,6 +1731,7 @@ def reporte_semanal_pdf():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reportes/cliente/<cliente_id>/pdf', methods=['GET'])
+@auth_required
 def reporte_cliente_pdf(cliente_id):
     """Estado de cuenta por cliente en PDF - Versión presentable"""
     try:
@@ -1315,6 +1823,7 @@ def reporte_cliente_pdf(cliente_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reportes/vencidas/pdf', methods=['GET'])
+@auth_required
 def reporte_vencidas_pdf():
     """Reporte de facturas vencidas en PDF"""
     try:
@@ -1390,6 +1899,7 @@ def reporte_vencidas_pdf():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reportes/resumen-clientes/pdf', methods=['GET'])
+@auth_required
 def reporte_resumen_clientes_pdf():
     """Resumen por cliente en PDF"""
     try:
@@ -1486,6 +1996,7 @@ def reporte_resumen_clientes_pdf():
 # REPORTES EXCEL
 # =====================
 @app.route('/api/reportes/semanal', methods=['GET'])
+@auth_required
 def reporte_semanal_excel():
     """Genera reporte semanal de CxC en Excel"""
     try:
@@ -1788,6 +2299,7 @@ def reporte_vencidas():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reportes/por-tipo', methods=['GET'])
+@auth_required
 def reporte_por_tipo():
     """Reporte agrupado por tipo de producto"""
     try:
@@ -1851,6 +2363,7 @@ def reporte_por_tipo():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reportes/exportar-todo', methods=['GET'])
+@auth_required
 def exportar_todo():
     """Exporta todos los datos a Excel"""
     try:
@@ -2130,6 +2643,7 @@ def health_check():
 HEADERS_CONFIG = ['Campo', 'Valor']
 
 @app.route('/api/config', methods=['GET'])
+@auth_required
 def get_config():
     """Obtiene la configuración de la empresa"""
     try:
@@ -2154,6 +2668,7 @@ def get_config():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/config', methods=['POST'])
+@auth_required
 def save_config():
     """Guarda la configuración de la empresa"""
     try:
@@ -2508,6 +3023,7 @@ def portal_estado_cuenta_pdf():
 # =====================
 
 @app.route('/api/dashboard/generar-acceso', methods=['POST'])
+@auth_required
 def generar_acceso_dashboard():
     """Genera código de acceso para el dashboard de solo lectura"""
     try:
@@ -2655,6 +3171,7 @@ def verificar_acceso_dashboard():
 # ABONOS PARCIALES
 # =====================
 @app.route('/api/abonos', methods=['GET'])
+@auth_required
 def get_abonos():
     """Obtiene todos los abonos, opcionalmente filtrados por factura"""
     try:
@@ -2687,6 +3204,7 @@ def get_abonos():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/abonos', methods=['POST'])
+@auth_required
 def add_abono():
     """Registra un nuevo abono parcial"""
     try:
@@ -2762,6 +3280,7 @@ def add_abono():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/abonos/<abono_id>', methods=['DELETE'])
+@auth_required
 def delete_abono(abono_id):
     """Elimina un abono y recalcula el saldo de la factura"""
     try:
@@ -2807,6 +3326,7 @@ def delete_abono(abono_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/facturas/<factura_id>/abonos', methods=['GET'])
+@auth_required
 def get_abonos_factura(factura_id):
     """Obtiene el historial de abonos de una factura específica"""
     try:
@@ -2848,6 +3368,7 @@ def get_abonos_factura(factura_id):
 # REPORTE ANTIGÜEDAD DE CARTERA
 # =====================
 @app.route('/api/reportes/antiguedad', methods=['GET'])
+@auth_required
 def get_antiguedad_cartera():
     """Genera reporte de antigüedad de cartera"""
     try:
@@ -2968,6 +3489,7 @@ def get_antiguedad_cartera():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reportes/antiguedad/excel', methods=['GET'])
+@auth_required
 def export_antiguedad_excel():
     """Exporta reporte de antigüedad a Excel"""
     try:
@@ -3096,6 +3618,7 @@ def export_antiguedad_excel():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reportes/antiguedad/pdf', methods=['GET'])
+@auth_required
 def export_antiguedad_pdf():
     """Exporta reporte de antigüedad a PDF"""
     try:
@@ -3238,6 +3761,7 @@ def export_antiguedad_pdf():
 # DASHBOARD STATS
 # =====================
 @app.route('/api/dashboard/stats', methods=['GET'])
+@auth_required
 def get_dashboard_stats():
     """Obtiene estadísticas para el dashboard"""
     try:
