@@ -166,8 +166,17 @@ def login():
             return jsonify({'success': False, 'error': 'Usuario y contraseña requeridos'}), 400
         
         ws = get_usuarios_worksheet()
-        if not ws:
-            # Si no hay Master Sheet, crear usuario admin por defecto
+        
+        # Obtener usuarios existentes
+        usuarios = []
+        if ws:
+            try:
+                usuarios = ws.get_all_records()
+            except:
+                usuarios = []
+        
+        # Si no hay usuarios registrados, permitir admin/admin por defecto
+        if len(usuarios) == 0:
             if usuario == 'admin' and password == 'admin':
                 token = generate_token({
                     'id': '1',
@@ -184,22 +193,17 @@ def login():
                         'nombre': 'Administrador',
                         'rol': 'admin'
                     },
-                    'mensaje': '⚠️ Usando credenciales por defecto. Configure MASTER_SHEET_ID para persistencia.'
+                    'mensaje': '⚠️ Usando credenciales por defecto. Creá un usuario desde Configuración.'
                 }))
                 response.set_cookie('auth_token', token, httponly=True, secure=True, samesite='None', max_age=JWT_EXPIRATION_HOURS*3600)
                 return response
             else:
-                return jsonify({'success': False, 'error': 'Credenciales inválidas'}), 401
+                return jsonify({'success': False, 'error': 'Credenciales inválidas. Use admin/admin para el primer acceso.'}), 401
         
-        # Buscar usuario
-        try:
-            usuarios = ws.get_all_records()
-        except:
-            usuarios = []
-        
+        # Buscar usuario en la lista
         user = None
         for u in usuarios:
-            if u.get('Usuario', '').lower() == usuario and u.get('Activo', 'TRUE') == 'TRUE':
+            if u.get('Usuario', '').lower() == usuario and str(u.get('Activo', 'TRUE')).upper() == 'TRUE':
                 user = u
                 break
         
