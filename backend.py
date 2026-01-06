@@ -2316,45 +2316,76 @@ def portal_verificar():
             return jsonify({'success': False, 'error': 'Código incorrecto'})
         
         # Obtener facturas del cliente
-        ws_fac = sheet.worksheet('Facturas')
-        facturas = ws_fac.get_all_records()
+        ws_fac = get_or_create_worksheet(sheet, 'Facturas', HEADERS_FACTURAS)
+        try:
+            facturas = ws_fac.get_all_records()
+        except:
+            facturas = []
         
         cliente_id = str(cliente.get('ID', ''))
-        facturas_cliente = [f for f in facturas if str(f.get('ClienteID', '')) == cliente_id]
         
-        # Separar pendientes y pagadas
+        # Separar pendientes y pagadas - usando set para evitar duplicados por ID
         hoy = datetime.now()
         pendientes = []
         pagos = []
         total_pendiente = 0
         total_vencido = 0
+        ids_procesados = set()
         
-        for f in facturas_cliente:
-            if f.get('Pagado') == 'TRUE' or str(f.get('Pagado')).upper() == 'TRUE':
+        for f in facturas:
+            # Evitar duplicados por ID
+            factura_id = str(f.get('ID', ''))
+            if factura_id in ids_procesados or not factura_id:
+                continue
+            ids_procesados.add(factura_id)
+            
+            # Solo facturas de este cliente
+            if str(f.get('ClienteID', '')) != cliente_id:
+                continue
+            
+            # Ignorar notas de crédito
+            if f.get('TipoDocumento') == 'NC':
+                continue
+            
+            pagado = str(f.get('Pagado', 'FALSE')).upper() == 'TRUE'
+            estado = str(f.get('Estado', ''))
+            
+            if pagado or estado == 'Pagado' or estado == 'Compensado':
                 # Factura pagada
                 pagos.append({
-                    'consecutivo': f.get('Consecutivo', ''),
+                    'id': factura_id,
+                    'consecutivo': str(f.get('Consecutivo', '')),
                     'fechaPago': f.get('FechaPago', ''),
                     'monto': parse_number(f.get('MontoCobrar', 0)),
-                    'detalle': f.get('DetallePago', '')
+                    'detalle': f.get('Notas', '') or f.get('DetallePago', '')
                 })
             else:
                 # Factura pendiente
                 monto = parse_number(f.get('MontoCobrar', 0))
-                total_pendiente += monto
+                total_abonado = parse_number(f.get('TotalAbonado', 0))
+                saldo = monto - total_abonado
+                
+                if saldo <= 0:
+                    continue
+                
+                total_pendiente += saldo
                 
                 try:
-                    fv = datetime.fromisoformat(f.get('FechaVencimiento', '').split('T')[0])
-                    if fv < hoy:
-                        total_vencido += monto
+                    fv_str = str(f.get('FechaVencimiento', '')).split('T')[0]
+                    if fv_str:
+                        fv = datetime.strptime(fv_str, '%Y-%m-%d')
+                        if fv < hoy:
+                            total_vencido += saldo
                 except:
                     pass
                 
                 pendientes.append({
-                    'consecutivo': f.get('Consecutivo', ''),
-                    'fecha': f.get('Fecha', ''),
-                    'fechaVencimiento': f.get('FechaVencimiento', ''),
-                    'montoCobrar': monto
+                    'id': factura_id,
+                    'consecutivo': str(f.get('Consecutivo', '')),
+                    'fecha': str(f.get('Fecha', ''))[:10] if f.get('Fecha') else '',
+                    'fechaVencimiento': str(f.get('FechaVencimiento', ''))[:10] if f.get('FechaVencimiento') else '',
+                    'montoCobrar': saldo,
+                    'totalAbonado': total_abonado
                 })
         
         # Ordenar pendientes por fecha de vencimiento
@@ -2563,29 +2594,52 @@ def verificar_acceso_dashboard():
             return jsonify({'success': False, 'error': 'Código incorrecto'})
         
         # Obtener todos los datos
-        ws_cli = sheet.worksheet('Clientes')
-        ws_fac = sheet.worksheet('Facturas')
+        ws_cli = get_or_create_worksheet(sheet, 'Clientes', HEADERS_CLIENTES)
+        ws_fac = get_or_create_worksheet(sheet, 'Facturas', HEADERS_FACTURAS)
         
-        clientes_raw = ws_cli.get_all_records()
-        facturas_raw = ws_fac.get_all_records()
+        try:
+            clientes_raw = ws_cli.get_all_records()
+        except:
+            clientes_raw = []
         
-        clientes = [{
-            'id': str(c.get('ID', '')),
-            'nombre': c.get('Nombre', ''),
-            'identificacion': c.get('Identificacion', '')
-        } for c in clientes_raw]
+        try:
+            facturas_raw = ws_fac.get_all_records()
+        except:
+            facturas_raw = []
         
-        facturas = [{
-            'id': str(f.get('ID', '')),
-            'consecutivo': f.get('Consecutivo', ''),
-            'clienteId': str(f.get('ClienteID', '')),
-            'fecha': f.get('Fecha', ''),
-            'fechaVencimiento': f.get('FechaVencimiento', ''),
-            'totalFactura': parse_number(f.get('TotalFactura', 0)),
-            'montoCobrar': parse_number(f.get('MontoCobrar', 0)),
-            'pagado': f.get('Pagado', ''),
-            'fechaPago': f.get('FechaPago', '')
-        } for f in facturas_raw]
+        # Procesar clientes evitando duplicados
+        clientes_ids = set()
+        clientes = []
+        for c in clientes_raw:
+            cid = str(c.get('ID', ''))
+            if cid and cid not in clientes_ids:
+                clientes_ids.add(cid)
+                clientes.append({
+                    'id': cid,
+                    'nombre': c.get('Nombre', ''),
+                    'identificacion': str(c.get('Identificacion', ''))
+                })
+        
+        # Procesar facturas evitando duplicados por ID
+        facturas_ids = set()
+        facturas = []
+        for f in facturas_raw:
+            fid = str(f.get('ID', ''))
+            if fid and fid not in facturas_ids:
+                facturas_ids.add(fid)
+                facturas.append({
+                    'id': fid,
+                    'consecutivo': str(f.get('Consecutivo', '')),
+                    'clienteId': str(f.get('ClienteID', '')),
+                    'fecha': str(f.get('Fecha', ''))[:10] if f.get('Fecha') else '',
+                    'fechaVencimiento': str(f.get('FechaVencimiento', ''))[:10] if f.get('FechaVencimiento') else '',
+                    'totalFactura': parse_number(f.get('TotalFactura', 0)),
+                    'montoCobrar': parse_number(f.get('MontoCobrar', 0)),
+                    'pagado': str(f.get('Pagado', '')).upper() == 'TRUE' or f.get('Estado') == 'Pagado',
+                    'fechaPago': f.get('FechaPago', ''),
+                    'estado': f.get('Estado', ''),
+                    'tipoDocumento': f.get('TipoDocumento', 'FAC')
+                })
         
         return jsonify({
             'success': True,
