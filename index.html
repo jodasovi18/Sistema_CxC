@@ -2160,8 +2160,14 @@
             // Llamar directo al API sin usar el modal
             showLoading();
             const timestamp = new Date().getTime();
-            fetch(`${API}/reportes/cliente/${clienteId}/pdf?t=${timestamp}`)
-                .then(res => res.blob())
+            fetch(`${API}/reportes/cliente/${clienteId}/pdf?t=${timestamp}`, {
+                headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
+                credentials: 'include'
+            })
+                .then(res => {
+                    if (!res.ok) throw new Error('Error en respuesta');
+                    return res.blob();
+                })
                 .then(blob => {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
@@ -2375,18 +2381,30 @@
             showLoading();
             try {
                 const timestamp = new Date().getTime();
-                const res = await fetch(`${API}/reportes/${tipo}?t=${timestamp}`);
+                const res = await fetch(`${API}/reportes/${tipo}?t=${timestamp}`, {
+                    headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
+                    credentials: 'include'
+                });
+                
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    toast('Error: ' + (errorData.error || 'No se pudo generar el reporte'), 'error');
+                    hideLoading();
+                    return;
+                }
+                
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
                 const esPDF = tipo.includes('/pdf');
                 const nombreTipo = tipo.replace('/pdf', '').replace('/', '_');
-                a.download = `Reporte_${nombreTipo}_${new Date().toISOString().split('T')[0]}_${timestamp}.${esPDF ? 'pdf' : 'xlsx'}`;
+                a.download = `Reporte_${nombreTipo}_${new Date().toISOString().split('T')[0]}.${esPDF ? 'pdf' : 'xlsx'}`;
                 a.click();
                 URL.revokeObjectURL(url);
                 toast('Reporte descargado');
             } catch (e) {
+                console.error('Error descargando reporte:', e);
                 toast('Error al generar reporte', 'error');
             }
             hideLoading();
@@ -2398,7 +2416,18 @@
             closeModal('modal-reporte-cliente');
             showLoading();
             try {
-                const res = await fetch(`${API}/reportes/cliente/${id}`);
+                const res = await fetch(`${API}/reportes/cliente/${id}`, {
+                    headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
+                    credentials: 'include'
+                });
+                
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    toast('Error: ' + (errorData.error || 'No se pudo generar el reporte'), 'error');
+                    hideLoading();
+                    return;
+                }
+                
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -2408,6 +2437,7 @@
                 URL.revokeObjectURL(url);
                 toast('Reporte descargado');
             } catch (e) {
+                console.error('Error descargando reporte:', e);
                 toast('Error', 'error');
             }
             hideLoading();
@@ -2420,7 +2450,10 @@
             showLoading();
             try {
                 const timestamp = new Date().getTime();
-                const res = await fetch(`${API}/reportes/cliente/${id}/pdf?t=${timestamp}`);
+                const res = await fetch(`${API}/reportes/cliente/${id}/pdf?t=${timestamp}`, {
+                    headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
+                    credentials: 'include'
+                });
                 if (!res.ok) {
                     const errorData = await res.json().catch(() => ({}));
                     toast('Error: ' + (errorData.error || 'No se pudo generar el PDF'), 'error');
@@ -3013,7 +3046,15 @@
         async function exportAntiguedadExcel() {
             showLoading();
             try {
-                const response = await fetch(`${API}/reportes/antiguedad/excel`);
+                const response = await fetch(`${API}/reportes/antiguedad/excel`, {
+                    headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
+                    credentials: 'include'
+                });
+                if (!response.ok) {
+                    toast('Error al generar Excel', 'error');
+                    hideLoading();
+                    return;
+                }
                 const blob = await response.blob();
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a'); a.href = url;
@@ -3027,7 +3068,15 @@
         async function exportAntiguedadPDF() {
             showLoading();
             try {
-                const response = await fetch(`${API}/reportes/antiguedad/pdf`);
+                const response = await fetch(`${API}/reportes/antiguedad/pdf`, {
+                    headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
+                    credentials: 'include'
+                });
+                if (!response.ok) {
+                    toast('Error al generar PDF', 'error');
+                    hideLoading();
+                    return;
+                }
                 const blob = await response.blob();
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a'); a.href = url;
