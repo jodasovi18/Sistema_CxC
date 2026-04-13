@@ -828,6 +828,26 @@
                             </button>
                         </div>
                     </div>
+                    
+                    <!-- Herramientas de Mantenimiento (Solo Admin) -->
+                    <div class="table-container" style="max-width:600px;margin-top:24px" id="seccion-herramientas">
+                        <div class="table-header"><h3>🔧 Herramientas de Mantenimiento</h3></div>
+                        <div style="padding:24px">
+                            <p style="color:var(--text-secondary);margin-bottom:20px">Herramientas para corregir datos del sistema.</p>
+                            
+                            <div style="background:var(--bg-tertiary);padding:16px;border-radius:8px;margin-bottom:16px">
+                                <h4 style="margin-bottom:8px;font-size:14px">📅 Corregir Formato de Fechas</h4>
+                                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">
+                                    Corrige fechas que tienen formato incorrecto (ej: 2026-02-20T21:54:42.110Z → 2026-02-20). 
+                                    Esto soluciona el problema de fechas importadas con hora incluida.
+                                </p>
+                                <button class="btn btn-sm btn-warning" onclick="corregirFechas()">
+                                    <i data-lucide="calendar" style="width:14px;height:14px"></i>Corregir Fechas
+                                </button>
+                                <span id="resultado-fechas" style="margin-left:12px;font-size:13px"></span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </main>
@@ -2538,10 +2558,12 @@
             // Solo cargar si el usuario es admin
             if (!currentUser || currentUser.rol !== 'admin') {
                 document.getElementById('seccion-usuarios').style.display = 'none';
+                document.getElementById('seccion-herramientas').style.display = 'none';
                 return;
             }
             
             document.getElementById('seccion-usuarios').style.display = 'block';
+            document.getElementById('seccion-herramientas').style.display = 'block';
             
             const res = await api('/usuarios');
             if (res.success) {
@@ -2722,6 +2744,41 @@
                 document.getElementById('cambiar-pass-confirmar').value = '';
             } else {
                 toast(res.error || 'Error al cambiar contraseña', 'error');
+            }
+        }
+        
+        async function corregirFechas() {
+            if (!confirm('¿Estás seguro de corregir las fechas? Esto modificará los datos en Google Sheets.')) {
+                return;
+            }
+            
+            const resultadoEl = document.getElementById('resultado-fechas');
+            resultadoEl.textContent = 'Procesando...';
+            resultadoEl.style.color = 'var(--accent-orange)';
+            
+            showLoading();
+            const res = await api('/facturas/corregir-fechas', 'POST');
+            hideLoading();
+            
+            if (res.success) {
+                resultadoEl.textContent = `✓ ${res.corregidas} facturas corregidas`;
+                resultadoEl.style.color = 'var(--accent-green)';
+                toast(res.mensaje);
+                
+                // Recargar facturas para ver los cambios
+                await loadFacturas();
+                renderFacturas();
+            } else {
+                resultadoEl.textContent = '✗ Error: ' + res.error;
+                resultadoEl.style.color = 'var(--accent-red)';
+                toast(res.error || 'Error al corregir fechas', 'error');
+            }
+        }
+        
+        function mostrarHerramientasAdmin() {
+            const seccion = document.getElementById('seccion-herramientas');
+            if (seccion) {
+                seccion.style.display = (currentUser && currentUser.rol === 'admin') ? 'block' : 'none';
             }
         }
 

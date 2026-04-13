@@ -1184,6 +1184,87 @@ def add_facturas_batch():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/facturas/corregir-fechas', methods=['POST'])
+@admin_required
+def corregir_fechas_facturas():
+    """Corrige las fechas que tienen formato ISO con hora (2026-02-20T21:54:42.110Z -> 2026-02-20)"""
+    try:
+        sheet = get_sheet()
+        ws = sheet.worksheet('Facturas')
+        
+        # Obtener todos los datos
+        all_values = ws.get_all_values()
+        if len(all_values) < 2:
+            return jsonify({'success': True, 'mensaje': 'No hay facturas para corregir', 'corregidas': 0})
+        
+        headers = all_values[0]
+        
+        # Encontrar índices de columnas de fecha
+        col_fecha = None
+        col_fecha_venc = None
+        
+        for i, h in enumerate(headers):
+            if h == 'Fecha':
+                col_fecha = i
+            elif h == 'FechaVencimiento':
+                col_fecha_venc = i
+        
+        if col_fecha is None:
+            return jsonify({'success': False, 'error': 'No se encontró columna Fecha'}), 400
+        
+        corregidas = 0
+        actualizaciones = []
+        
+        for row_idx, row in enumerate(all_values[1:], start=2):  # start=2 porque fila 1 es header
+            cambios_fila = False
+            
+            # Corregir Fecha (columna col_fecha)
+            if col_fecha is not None and col_fecha < len(row):
+                fecha_original = row[col_fecha]
+                if fecha_original and 'T' in str(fecha_original):
+                    fecha_corregida = str(fecha_original).split('T')[0]
+                    actualizaciones.append({
+                        'range': f'{get_column_letter_gspread(col_fecha + 1)}{row_idx}',
+                        'values': [[fecha_corregida]]
+                    })
+                    cambios_fila = True
+            
+            # Corregir FechaVencimiento (columna col_fecha_venc)
+            if col_fecha_venc is not None and col_fecha_venc < len(row):
+                fecha_venc_original = row[col_fecha_venc]
+                if fecha_venc_original and 'T' in str(fecha_venc_original):
+                    fecha_venc_corregida = str(fecha_venc_original).split('T')[0]
+                    actualizaciones.append({
+                        'range': f'{get_column_letter_gspread(col_fecha_venc + 1)}{row_idx}',
+                        'values': [[fecha_venc_corregida]]
+                    })
+                    cambios_fila = True
+            
+            if cambios_fila:
+                corregidas += 1
+        
+        # Aplicar todas las actualizaciones en batch
+        if actualizaciones:
+            ws.batch_update(actualizaciones)
+        
+        return jsonify({
+            'success': True,
+            'mensaje': f'Se corrigieron {corregidas} facturas',
+            'corregidas': corregidas
+        })
+        
+    except Exception as e:
+        print(f"Error corrigiendo fechas: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+def get_column_letter_gspread(col_num):
+    """Convierte número de columna a letra (1=A, 2=B, etc.)"""
+    result = ""
+    while col_num > 0:
+        col_num, remainder = divmod(col_num - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
 @app.route('/api/factura/<factura_id>', methods=['GET'])
 @auth_required
 def get_factura_by_id(factura_id):
