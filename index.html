@@ -2271,7 +2271,22 @@
                 const cliN = String(get(row, 'cliente') || '').trim();
                 const ced = String(get(row, 'cedula') || '').trim();
                 let fecha = get(row, 'fecha');
-                if (fecha instanceof Date) fecha = fecha.toISOString();
+                
+                // Convertir fecha a string ISO (solo fecha, sin hora)
+                if (fecha instanceof Date) {
+                    // Es un objeto Date de JavaScript
+                    fecha = fecha.toISOString().split('T')[0];
+                } else if (fecha && typeof fecha === 'string') {
+                    // Ya es string, limpiar si tiene hora
+                    if (fecha.includes('T')) {
+                        fecha = fecha.split('T')[0];
+                    }
+                } else if (fecha && typeof fecha === 'number') {
+                    // Número de Excel (días desde 1900-01-01)
+                    const excelDate = new Date((fecha - 25569) * 86400 * 1000);
+                    fecha = excelDate.toISOString().split('T')[0];
+                }
+                
                 const total = parseFloat(get(row, 'total')) || 0;
 
                 let match = activos.find(c => ced && c.identificacion.includes(ced));
@@ -2303,30 +2318,36 @@
             const facturas = state.importPreview.map(r => {
                 const dias = r.cliente.diasVencimiento || 8;
                 
-                // Parsear fecha correctamente (puede venir en varios formatos)
+                // Parsear fecha - ya viene limpia desde previewImport
                 let fechaBase;
                 if (r.fecha) {
-                    // Si viene en formato dd-mm-yyyy o dd/mm/yyyy
-                    if (r.fecha.includes('-') || r.fecha.includes('/')) {
-                        const sep = r.fecha.includes('-') ? '-' : '/';
-                        const parts = r.fecha.split(sep);
+                    // Formato esperado: yyyy-mm-dd
+                    if (r.fecha.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        const [year, month, day] = r.fecha.split('-').map(Number);
+                        fechaBase = new Date(year, month - 1, day);
+                    } else if (r.fecha.includes('/')) {
+                        // dd/mm/yyyy
+                        const parts = r.fecha.split('/');
                         if (parts.length === 3) {
-                            // Detectar si es dd-mm-yyyy o yyyy-mm-dd
-                            if (parts[0].length === 4) {
-                                // yyyy-mm-dd
-                                fechaBase = new Date(parts[0], parts[1] - 1, parts[2]);
-                            } else {
-                                // dd-mm-yyyy
-                                fechaBase = new Date(parts[2], parts[1] - 1, parts[0]);
-                            }
+                            fechaBase = new Date(parts[2], parts[1] - 1, parts[0]);
                         }
-                    } else {
+                    } else if (r.fecha.includes('-')) {
+                        // dd-mm-yyyy
+                        const parts = r.fecha.split('-');
+                        if (parts.length === 3 && parts[0].length <= 2) {
+                            fechaBase = new Date(parts[2], parts[1] - 1, parts[0]);
+                        }
+                    }
+                    
+                    // Último intento
+                    if (!fechaBase || isNaN(fechaBase.getTime())) {
                         fechaBase = new Date(r.fecha);
                     }
                 }
                 
                 // Si no se pudo parsear, usar fecha actual
                 if (!fechaBase || isNaN(fechaBase.getTime())) {
+                    console.warn('No se pudo parsear fecha:', r.fecha, '- usando fecha actual');
                     fechaBase = new Date();
                 }
                 
